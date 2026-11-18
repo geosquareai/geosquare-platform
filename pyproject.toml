@@ -4,7 +4,8 @@ version = "0.1.0"
 description = "GeoSquare platform: import tables with GID columns, store them as cells, draw them on a map."
 requires-python = ">=3.11"
 dependencies = [
-  "geosquare-engine>=0.1.0",
+  "geosquare-engine>=0.1.0,<0.2",
+  "geosquare-v2[table,registry]==1.0.0",
   "fastapi>=0.110",
   "python-multipart>=0.0.9",
   "uvicorn>=0.29",
@@ -22,7 +23,3 @@ packages = ["src/geosquare_platform"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-
-# The engine is not on PyPI yet. Build it from git (needs Rust).
-[tool.uv.sources]
-geosquare-engine = { git = "ssh://git@github.com/geosquareai/geosquare-engine.git", subdirectory = "bindings/python" }
