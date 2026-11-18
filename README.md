@@ -16,6 +16,27 @@ uv run pytest -q
 uv run uvicorn geosquare_platform.app:app --reload
 ```
 
+## Demo
+
+Demo menjalankan langkah upload, deteksi, simpan, dan cek manifest lewat API.
+
+```zsh
+uv run python -m geosquare_platform.demo cells.csv --numeric share
+```
+
+Data KYL (50.676 sel, level 12). Kolom `coverage_ratio` diganti nama jadi `share_in_aoi`,
+karena nama itu dicadangkan kontrak. Nilainya tidak berubah.
+
+```zsh
+uv run --no-project --with geopandas python -c "
+import geopandas as gpd
+g = gpd.read_file('grid_cells_50m_jakbar.gpkg')
+g[['gid', 'coverage_ratio']].rename(columns={'coverage_ratio': 'share_in_aoi'}).to_csv('kyl_cells_50m.csv', index=False)
+"
+uv run python -m geosquare_platform.demo kyl_cells_50m.csv --numeric share_in_aoi
+GSQ_KYL_CSV=kyl_cells_50m.csv uv run pytest -q tests/test_demo.py
+```
+
 ## API
 
 - `POST /import/analyse`: cek CSV, kembalikan kolom GID dan level. Tidak menyimpan apa pun.
