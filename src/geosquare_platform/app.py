@@ -477,7 +477,6 @@ def cell_profile(gid: str) -> dict[str, Any]:
         "datasets": datasets,
         "skipped_datasets": skipped,
     }
->
 
 from .export import router as export_router
 
