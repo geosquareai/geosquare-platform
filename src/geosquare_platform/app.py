@@ -5,11 +5,13 @@ import io
 import json
 import math
 import os
+from collections.abc import Mapping
 from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
 from fastapi import Body, FastAPI, File, Form, HTTPException, Query, UploadFile
+import geosquare_engine as gs
 from geosquare_v2 import read_cell_dataset
 from geosquare_v2.errors import GeosquareError
 
@@ -338,3 +340,136 @@ def join_query(payload: dict = Body(...)) -> dict:
                 key = f"{dataset_id}.{column}" if column_counts[column] > 1 else column
                 group[key] = group.get(key, 0.0) + float(rows[gid][column])
     return {"rows": [groups[key] for key in sorted(groups)], "cells_joined": len(common)}
+
+
+# Catalog and cell-profile routes intentionally read only the manifest until a profile
+# query needs row values. Grid identity and hierarchy stay in geosquare-engine.
+def _catalog_dataset_paths() -> list[Path]:
+    root = data_root()
+    if not root.is_dir():
+        return []
+    return sorted(
+        (path for path in root.iterdir() if path.is_dir() and path.name != "crosswalks"),
+        key=lambda path: path.name,
+    )
+
+
+def _read_catalog_manifest(path: Path) -> dict[str, Any]:
+    with (path / "manifest.json").open(encoding="utf-8") as handle:
+        manifest = json.load(handle)
+    if not isinstance(manifest, dict):
+        raise ValueError("manifest must contain a JSON object")
+    return manifest
+
+
+def _catalog_entry(path: Path) -> dict[str, Any]:
+    try:
+        manifest = _read_catalog_manifest(path)
+        storage = manifest.get("storage", {})
+        provenance = manifest.get("provenance", {})
+        value_fields = manifest.get("value_fields", [])
+        if not isinstance(storage, Mapping) or not isinstance(provenance, Mapping):
+            raise ValueError("manifest storage and provenance must be objects")
+        if not isinstance(value_fields, list) or not all(isinstance(field, Mapping) for field in value_fields):
+            raise ValueError("manifest value_fields must be a list of objects")
+        return {
+            "dataset_id": path.name,
+            "domain_code": manifest.get("domain_code"),
+            "level": manifest.get("level"),
+            "dataset_type": manifest.get("dataset_type"),
+            "row_count": storage.get("row_count"),
+            "unique_cell_count": storage.get("unique_cell_count"),
+            "profile_version": manifest.get("profile_version"),
+            "registry_version": manifest.get("registry_version"),
+            "created_at": provenance.get("created_at"),
+            "value_fields": [
+                {
+                    "name": field.get("name"),
+                    "semantics": field.get("semantics"),
+                    "unit": field.get("unit"),
+                    "nullable": field.get("nullable"),
+                }
+                for field in value_fields
+            ],
+        }
+    except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
+        return {"dataset_id": path.name, "error": f"cannot read manifest: {exc}"}
+
+
+def _catalog_entries() -> list[dict[str, Any]]:
+    return [_catalog_entry(path) for path in _catalog_dataset_paths()]
+
+
+def _profile_values(row: dict[str, Any] | None, value_fields: list[dict[str, Any]]) -> dict[str, Any]:
+    if row is None:
+        return {}
+    return {field["name"]: row.get(field["name"]) for field in value_fields}
+
+
+@app.get("/catalog")
+def catalog() -> list[dict[str, Any]]:
+    """List dataset metadata without opening parquet data files."""
+    return _catalog_entries()
+
+
+@app.get("/cells/{gid}/profile")
+def cell_profile(gid: str) -> dict[str, Any]:
+    """Return values at the cell, its ancestors, or a finer-level marker."""
+    try:
+        level, _, _ = gs.decode(gid)
+        parent_gid = gs.parent(gid)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail=f"invalid GID: {exc}") from exc
+
+    entries = _catalog_entries()
+    for entry in entries:
+        if "error" in entry:
+            raise HTTPException(
+                status_code=422,
+                detail=f"dataset {entry['dataset_id']} has an unreadable manifest: {entry['error']}",
+            )
+        if entry["domain_code"] != "ID":
+            raise HTTPException(
+                status_code=422,
+                detail=f"cell profiles support domain ID only, not {entry['domain_code']!r}",
+            )
+
+    datasets: list[dict[str, Any]] = []
+    for entry in entries:
+        dataset_id = entry["dataset_id"]
+        dataset_level = entry["level"]
+        if not isinstance(dataset_level, int) or isinstance(dataset_level, bool):
+            raise HTTPException(status_code=422, detail=f"dataset {dataset_id} has an invalid level")
+        if dataset_level > level:
+            datasets.append(
+                {
+                    "dataset_id": dataset_id,
+                    "relation": "finer",
+                    "present": False,
+                    "values": {},
+                    "status": "not_applicable",
+                    "reason": "finer level; query the children",
+                }
+            )
+            continue
+
+        candidate_gid = gid
+        relation = "same"
+        for _ in range(level - dataset_level):
+            candidate_gid = gs.parent(candidate_gid)
+            relation = "ancestor"
+            if candidate_gid is None:
+                break
+        _, rows = _dataset_table(dataset_id)
+        row_by_gid = {row["gid"]: row for row in rows}
+        row = row_by_gid.get(candidate_gid) if candidate_gid is not None else None
+        datasets.append(
+            {
+                "dataset_id": dataset_id,
+                "relation": relation,
+                "present": row is not None,
+                "values": _profile_values(row, entry["value_fields"]),
+            }
+        )
+
+    return {"gid": gid, "level": level, "parent_gid": parent_gid, "datasets": datasets}
