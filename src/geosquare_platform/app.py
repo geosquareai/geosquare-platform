@@ -17,8 +17,10 @@ from .cellstore import DATASET_ID_PATTERN, DatasetExists, ValueField, parse_valu
 from .crosswalk import CrosswalkRejected, crosswalk_csv, load_crosswalk, validate_crosswalk
 from .importer import ImportRejected, analyse, read_csv
 from .registry import load_registry
+from .map_routes import router as map_router
 
 app = FastAPI(title="GeoSquare Platform", version="0.1.0")
+app.include_router(map_router)
 
 DATA_ENV = "GSQ_PLATFORM_DATA"  # folder for stored datasets; default data/cells
 
