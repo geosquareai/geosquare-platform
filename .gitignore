@@ -19,3 +19,5 @@ __pycache__/
 
 # Generated data
 data/
+# Locally copied WASM browser package (never commit build output)
+web/map/pkg/

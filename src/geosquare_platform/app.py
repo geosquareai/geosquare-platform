@@ -10,8 +10,10 @@ from geosquare_v2.errors import GeosquareError
 from .cellstore import DATASET_ID_PATTERN, DatasetExists, parse_value_fields, read_dataset, store_csv
 from .importer import ImportRejected, analyse
 from .registry import load_registry
+from .map_routes import router as map_router
 
 app = FastAPI(title="GeoSquare Platform", version="0.1.0")
+app.include_router(map_router)
 
 DATA_ENV = "GSQ_PLATFORM_DATA"  # folder for stored datasets; default data/cells
 
