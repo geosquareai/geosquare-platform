@@ -421,25 +421,22 @@ def cell_profile(gid: str) -> dict[str, Any]:
     except (TypeError, ValueError) as exc:
         raise HTTPException(status_code=422, detail=f"invalid GID: {exc}") from exc
 
-    entries = _catalog_entries()
-    for entry in entries:
-        if "error" in entry:
-            raise HTTPException(
-                status_code=422,
-                detail=f"dataset {entry['dataset_id']} has an unreadable manifest: {entry['error']}",
-            )
-        if entry["domain_code"] != "ID":
-            raise HTTPException(
-                status_code=422,
-                detail=f"cell profiles support domain ID only, not {entry['domain_code']!r}",
-            )
-
     datasets: list[dict[str, Any]] = []
-    for entry in entries:
+    skipped: list[dict[str, str]] = []
+    for entry in _catalog_entries():
         dataset_id = entry["dataset_id"]
+        if "error" in entry:
+            skipped.append({"dataset_id": dataset_id, "reason": entry["error"]})
+            continue
+        if entry["domain_code"] != "ID":
+            skipped.append(
+                {"dataset_id": dataset_id, "reason": f"domain {entry['domain_code']!r} is not supported in profiles"}
+            )
+            continue
         dataset_level = entry["level"]
         if not isinstance(dataset_level, int) or isinstance(dataset_level, bool):
-            raise HTTPException(status_code=422, detail=f"dataset {dataset_id} has an invalid level")
+            skipped.append({"dataset_id": dataset_id, "reason": "manifest level is not an integer"})
+            continue
         if dataset_level > level:
             datasets.append(
                 {
@@ -472,4 +469,10 @@ def cell_profile(gid: str) -> dict[str, Any]:
             }
         )
 
-    return {"gid": gid, "level": level, "parent_gid": parent_gid, "datasets": datasets}
+    return {
+        "gid": gid,
+        "level": level,
+        "parent_gid": parent_gid,
+        "datasets": datasets,
+        "skipped_datasets": skipped,
+    }

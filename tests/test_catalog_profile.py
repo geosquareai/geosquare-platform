@@ -133,3 +133,29 @@ def test_cell_profile_rejects_invalid_gid(data_root):
 
     assert response.status_code == 422
     assert "invalid GID" in response.json()["detail"]
+
+
+def test_cell_profile_skips_broken_and_non_id_datasets(data_root):
+    client = TestClient(app)
+    child = gs.children(gid(9))[0]
+    good = upload(client, [(child, "20")])
+    assert good.status_code == 201
+
+    broken = data_root / "ID-L9-broken"
+    broken.mkdir(parents=True)
+    (broken / "manifest.json").write_text("{", encoding="utf-8")
+    other_domain = data_root / "VN-L9-other"
+    other_domain.mkdir(parents=True)
+    (other_domain / "manifest.json").write_text(
+        json.dumps({"domain_code": "VN", "level": 9, "value_fields": []}), encoding="utf-8"
+    )
+
+    response = client.get(f"/cells/{child}/profile")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert [dataset["dataset_id"] for dataset in body["datasets"]] == [good.json()["dataset_id"]]
+    assert body["datasets"][0]["values"] == {"share": 20.0}
+    skipped = {item["dataset_id"]: item["reason"] for item in body["skipped_datasets"]}
+    assert set(skipped) == {"ID-L9-broken", "VN-L9-other"}
+    assert "'VN' is not supported" in skipped["VN-L9-other"]
