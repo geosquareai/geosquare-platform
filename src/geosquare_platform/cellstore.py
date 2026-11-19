@@ -172,7 +172,7 @@ def build_manifest(
                 "semantics": field.semantics,
                 "unit": field.unit,
                 "nullable": False,
-                "aggregation_rule": None,
+                "aggregation_rule": "sum" if field.semantics == "COUNT" else None,
             }
             for field in fields
         ],
@@ -229,6 +229,7 @@ def store_csv(
     value_fields: Sequence[ValueField],
     confirm_digit_gid: bool = False,
     created_at: str | None = None,
+    dataset_id: str | None = None,
 ) -> StoredDataset:
     """Detect the GID column, build the cell table, validate it, and write it under `root`."""
     report = analyse(data, confirm_digit_gid=confirm_digit_gid)
@@ -245,9 +246,16 @@ def store_csv(
         created_at=created_at or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
     )
 
-    # The id comes from the content, the value field list, and the level. Same input gives the same id.
+    # The id comes from the content, the value field list, and the level unless a
+    # caller supplies a validated id for an explicit derived dataset.
     identity = hashlib.sha256(data + json.dumps([f.as_dict() for f in value_fields], sort_keys=True).encode())
-    dataset_id = f"{DOMAIN}-L{report.level}-{identity.hexdigest()[:12]}"
+    generated_id = f"{DOMAIN}-L{report.level}-{identity.hexdigest()[:12]}"
+    if dataset_id is None:
+        dataset_id = generated_id
+    elif not DATASET_ID_PATTERN.fullmatch(dataset_id):
+        raise ImportRejected("dataset_id does not match the dataset ID pattern")
+    elif int(dataset_id.split("-L", 1)[1].split("-", 1)[0]) != report.level:
+        raise ImportRejected("dataset_id level does not match the uploaded GIDs")
     destination = Path(root) / dataset_id
     if destination.exists():
         raise DatasetExists(f"dataset {dataset_id} already exists")

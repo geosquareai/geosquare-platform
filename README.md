@@ -64,3 +64,13 @@ Dataset disimpan di `data/cells`. Ganti lokasi dengan variabel `GSQ_PLATFORM_DAT
 
 - Spec: `geosquare-v2/internal/architecture/V2SPECS.md`, bagian 14 dan 15.
 - Kontrak dataset: `geosquare-v2/docs/cell-dataset-contract.md`.
+
+## Phase 3 query and crosswalk API (English)
+
+The platform now exposes `GET /datasets/{dataset_id}/rollup?level=L&sum=col1,col2` for hierarchical sums and `POST /query/join` for inner joins followed by a rollup. The join request accepts `dataset_ids`, `level`, `sum`, and optional `gid_prefixes`.
+
+Crosswalk administration uses `POST /crosswalks` with a CSV containing `sumber_id,gid,bobot`, plus `name`, `domain_code`, `level`, and `weight_kind` form fields. `GET /crosswalks/{name}` reads its manifest and counts. `POST /crosswalks/{name}/apply` allocates numeric source columns to cells, checks conservation, and stores the resulting COUNT dataset.
+
+## Bahasa Indonesia
+
+API Fase 3 sekarang menyediakan rollup, join inner, dan administrasi crosswalk. Crosswalk memvalidasi bobot positif, jumlah bobot per sumber sama dengan 1, GID sesuai level manifest, serta tidak ada pasangan sumber-GID ganda. Proses apply menolak sumber yang tidak dikenal dan memeriksa konservasi jumlah sebelum menyimpan dataset sel.
