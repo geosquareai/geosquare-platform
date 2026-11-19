@@ -20,6 +20,8 @@ from .importer import ImportRejected, read_csv
 
 CROSSWALK_FORMAT_VERSION = "1.0"
 WEIGHT_KINDS = frozenset(("luas", "bangunan", "populasi", "lainnya"))
+# The eleven ASEAN domains in registry 2.0.0 (same list as geosquare_v2.crosswalk).
+KNOWN_DOMAIN_CODES = frozenset(("BN", "ID", "KH", "LA", "MM", "MY", "PH", "SG", "TH", "TL", "VN"))
 _REQUIRED_COLUMNS = frozenset(("sumber_id", "gid", "bobot"))
 
 
@@ -51,8 +53,8 @@ def _level(value: Any) -> int:
         level = int(value)
     except (TypeError, ValueError) as exc:
         raise CrosswalkRejected("level must be an integer") from exc
-    if level < 0 or level > 99:
-        raise CrosswalkRejected("level must be a non-negative integer")
+    if level < 0 or level > 14:
+        raise CrosswalkRejected("level must be an integer from 0 to 14")
     if isinstance(value, str) and str(level) != value.strip():
         raise CrosswalkRejected("level must be a non-negative integer")
     return level
@@ -66,8 +68,8 @@ def validate_crosswalk(
     weight_kind: str,
 ) -> Crosswalk:
     """Validate CSV rows and return normalized crosswalk data."""
-    if not isinstance(domain_code, str) or not domain_code:
-        raise CrosswalkRejected("domain_code must be non-empty text")
+    if not isinstance(domain_code, str) or domain_code not in KNOWN_DOMAIN_CODES:
+        raise CrosswalkRejected(f"domain_code must be one of {sorted(KNOWN_DOMAIN_CODES)}")
     level = _level(level)
     if weight_kind not in WEIGHT_KINDS:
         raise CrosswalkRejected(f"weight_kind must be one of {sorted(WEIGHT_KINDS)}")

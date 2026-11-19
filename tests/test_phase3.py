@@ -122,3 +122,14 @@ def test_missing_and_invalid_query_paths(client):
     assert client.get(f"/datasets/{dataset}/rollup", params={"level": 10, "sum": "value"}).status_code == 422
     assert client.get(f"/datasets/{dataset}/rollup", params={"level": 9, "sum": "missing"}).status_code == 422
     assert client.post("/query/join", json={"dataset_ids": [dataset], "level": 9, "sum": ["value"]}).status_code == 422
+
+
+def test_crosswalk_rejects_unknown_domain_and_out_of_range_level():
+    from geosquare_platform.crosswalk import CrosswalkRejected, validate_crosswalk as check
+
+    data = b"sumber_id,gid,bobot\nDESA-001,22,1\n"
+    with pytest.raises(CrosswalkRejected, match="domain_code must be one of"):
+        check(data, domain_code="XX", level=2, weight_kind="luas")
+    with pytest.raises(CrosswalkRejected, match="integer from 0 to 14"):
+        check(data, domain_code="ID", level=99, weight_kind="luas")
+    assert check(data, domain_code="ID", level=2, weight_kind="luas").summary() == {"sources": 1, "rows": 1, "cells": 1}
