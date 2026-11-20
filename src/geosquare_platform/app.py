@@ -293,6 +293,7 @@ def rollup_dataset(
     level: int = Query(...),
     sum_columns: str = Query(..., alias="sum"),
 ) -> dict:
+    """Internal compatibility route; external exports must use ``/export``."""
     metadata, source_rows = _dataset_table(dataset_id)
     dataset_level = metadata["level"]
     if level < 0 or level > dataset_level:
@@ -502,3 +503,7 @@ def cell_profile(gid: str) -> dict[str, Any]:
         "datasets": datasets,
         "skipped_datasets": skipped,
     }
+
+from .export import router as export_router
+
+app.include_router(export_router)

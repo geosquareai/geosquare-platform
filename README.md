@@ -67,7 +67,7 @@ Dataset disimpan di `data/cells`. Ganti lokasi dengan variabel `GSQ_PLATFORM_DAT
 
 ## Phase 3 query and crosswalk API (English)
 
-The platform now exposes `GET /datasets/{dataset_id}/rollup?level=L&sum=col1,col2` for hierarchical sums and `POST /query/join` for inner joins followed by a rollup. The join request accepts `dataset_ids`, `level`, `sum`, and optional `gid_prefixes`.
+The platform now exposes `GET /datasets/{dataset_id}/rollup?level=L&sum=col1,col2` for internal hierarchical sums and `POST /query/join` for inner joins followed by a rollup. The internal rollup route remains for compatibility; external exports must use `GET /datasets/{dataset_id}/export?k=<int>&count=<field>`. The export applies the requested k-anonymity threshold and reports suppressed cells. The join request accepts `dataset_ids`, `level`, `sum`, and optional `gid_prefixes`.
 
 Crosswalk administration uses `POST /crosswalks` with a CSV containing `sumber_id,gid,bobot`, plus `name`, `domain_code`, `level`, and `weight_kind` form fields. `GET /crosswalks/{name}` reads its manifest and counts. `POST /crosswalks/{name}/apply` allocates numeric source columns to cells, checks conservation, and stores the resulting COUNT dataset.
 
