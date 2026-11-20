@@ -294,7 +294,7 @@ requires-dist = [
     { name = "fastapi", specifier = ">=0.110" },
     { name = "geosquare-engine", specifier = ">=0.2.0,<0.3" },
     { name = "geosquare-grid", marker = "extra == 'test'", specifier = "==1.1.1" },
-    { name = "geosquare-v2", extras = ["table", "registry", "geo"], specifier = "==1.0.0" },
+    { name = "geosquare-v2", extras = ["table", "registry", "geo"], specifier = "==1.2.0" },
     { name = "httpx", marker = "extra == 'test'", specifier = ">=0.27" },
     { name = "pytest", marker = "extra == 'test'", specifier = ">=8" },
     { name = "python-multipart", specifier = ">=0.0.9" },
@@ -304,11 +304,11 @@ provides-extras = ["test"]
 
 [[package]]
 name = "geosquare-v2"
-version = "1.0.0"
+version = "1.2.0"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/4d/e8/da3ab858fa9cfbb648f8513b59601638c74fb2ec4307d921d8276c52d070/geosquare_v2-1.0.0.tar.gz", hash = "sha256:e3070fa95206d0184ab6ecebbb0af7f80ece7d5ae41864ed3fea029afd997c2f", size = 34656543, upload-time = "2026-11-17T09:12:30.156Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/ee/21/3a078d8b4afe5d555f066de4149bf5b23c3a357bb949f0275e8a20c74850/geosquare_v2-1.2.0.tar.gz", hash = "sha256:a82601dc18c1be288f1fdd23dfb461d62828f0f198f3cca88f94269e765f1968", size = 34704351, upload-time = "2026-11-20T11:18:53.988Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/74/fa/4c6e25248ac98512dc25486c8b90640dadf53e8a0fcc6488448ccc8852ef/geosquare_v2-1.0.0-py3-none-any.whl", hash = "sha256:79d98f7af72698f280c9df3151154c1b867d03ae9d11be6983f24f71eb044f53", size = 17465860, upload-time = "2026-11-17T09:12:25.387Z" },
+    { url = "https://files.pythonhosted.org/packages/32/4b/37b5263190dd6cae1d55530a6f128c8c9043a52ab3a213f2eddd8db5094d/geosquare_v2-1.2.0-py3-none-any.whl", hash = "sha256:fade8da96ee35ab5b2e53228f98ea4d793f675a29f49b462eb6337bd8403fc55", size = 17484920, upload-time = "2026-11-20T11:18:48.86Z" },
 ]
 
 [package.optional-dependencies]
