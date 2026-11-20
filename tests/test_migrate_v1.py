@@ -54,7 +54,6 @@ def test_known_indonesia_conversion_normalizes_weights_and_writes_provenance(tmp
         level=9,
         name="ID-L9-0123456789ab",
         value_fields_json=FIELDS,
-        max_unallocated=1.0,
     )
 
     crosswalk = load_crosswalk(tmp_path / "cells" / "crosswalks" / result["crosswalk"])
@@ -62,7 +61,7 @@ def test_known_indonesia_conversion_normalizes_weights_and_writes_provenance(tmp
     assert sum(weights) == pytest.approx(1.0, abs=1e-12)
     assert result["conservation"]["count"]["source_sum"] == 10.0
     assert result["conservation"]["count"]["allocated_sum"] == pytest.approx(10.0, abs=1e-9)
-    assert 0 <= result["migration_report"]["per_source_u"][gid] < 0.03
+    assert 0 <= result["migration_report"]["per_source_u"][gid] < 1e-6
 
     report_path = tmp_path / "cells" / "ID-L9-0123456789ab" / "migration_report.json"
     report = json.loads(report_path.read_text(encoding="utf-8"))
@@ -78,16 +77,19 @@ def test_known_indonesia_conversion_normalizes_weights_and_writes_provenance(tmp
     assert report["domain"] == "ID"
     assert report["level"] == 9
     assert report["method"] == "v1_cell_area_crosswalk"
-    assert report["max_unallocated"] == 1.0
-    assert report["sources_with_unallocated"] == [gid]
+    assert report["max_unallocated"] == 1e-6
+    assert report["sources_with_unallocated"] == []
 
     stored = read_cell_dataset(tmp_path / "cells" / "ID-L9-0123456789ab").table.to_pylist()
     assert sum(row["count"] for row in stored) == pytest.approx(10.0, abs=1e-9)
 
 
-def test_unallocated_coverage_is_refused_by_default_and_allowed_with_threshold(tmp_path, monkeypatch, capsys) -> None:
+def test_root_edge_straddling_coverage_is_refused_by_default_and_allowed_with_threshold(
+    tmp_path, monkeypatch, capsys
+) -> None:
     monkeypatch.setenv("GSQ_PLATFORM_DATA", str(tmp_path / "cells"))
-    gid = V1Grid().lonlat_to_gid(106.8456, -6.2088, 9)
+    # N3N is a V1 L3 cell found by searching levels 2-5 near the ID root edge.
+    gid = "N3N"
     source = tmp_path / "straddling.csv"
     write_input(source, [(gid, "10")])
 
@@ -99,28 +101,85 @@ def test_unallocated_coverage_is_refused_by_default_and_allowed_with_threshold(t
                 "--domain",
                 "ID",
                 "--level",
-                "9",
+                "5",
                 "--name",
-                "ID-L9-abcdefabcdef",
+                "ID-L5-abcdefabcdef",
                 "--value-fields",
                 FIELDS,
             ]
         )
         == 2
     )
-    assert "unallocated coverage" in capsys.readouterr().err
-    assert not (tmp_path / "cells" / "ID-L9-abcdefabcdef").exists()
+    error = capsys.readouterr().err
+    assert "unallocated coverage" in error
+    assert gid in error
+    assert "u=" in error
+    assert not (tmp_path / "cells" / "ID-L5-abcdefabcdef").exists()
 
     result = convert_v1(
         input_path=source,
         domain="ID",
-        level=9,
-        name="ID-L9-abcdefabcdef",
+        level=5,
+        name="ID-L5-abcdefabcdef",
         value_fields_json=FIELDS,
         max_unallocated=1.0,
     )
     assert result["migration_report"]["per_source_u"][gid] > 0
     assert result["migration_report"]["sources_with_unallocated"] == [gid]
+
+
+def test_jakarta_l9_to_v2_l12_has_negligible_unallocated_coverage(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("GSQ_PLATFORM_DATA", str(tmp_path / "cells"))
+    gid = V1Grid().lonlat_to_gid(106.8456, -6.2088, 9)
+    source = tmp_path / "jakarta-l9.csv"
+    write_input(source, [(gid, "10")])
+
+    result = convert_v1(
+        input_path=source,
+        domain="ID",
+        level=12,
+        name="ID-L12-0123456789ab",
+        value_fields_json=FIELDS,
+    )
+
+    u = result["migration_report"]["per_source_u"][gid]
+    assert abs(u) < 1e-6
+    assert result["migration_report"]["sources_with_unallocated"] == []
+
+
+def test_failure_after_crosswalk_write_removes_outputs_and_allows_retry(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("GSQ_PLATFORM_DATA", str(tmp_path / "cells"))
+    gid = V1Grid().lonlat_to_gid(106.8456, -6.2088, 9)
+    source = tmp_path / "retry.csv"
+    write_input(source, [(gid, "10")])
+    dataset_name = "ID-L9-555555555555"
+    crosswalk_name = f"ID-L9-{hashlib.sha256(source.read_bytes()).hexdigest()[:12]}"
+
+    def fail_after_crosswalk(*args, **kwargs):
+        raise RuntimeError("forced failure after crosswalk")
+
+    with monkeypatch.context() as patch:
+        patch.setattr("geosquare_platform.migrate_v1.apply_crosswalk_data", fail_after_crosswalk)
+        with pytest.raises(RuntimeError, match="forced failure"):
+            convert_v1(
+                input_path=source,
+                domain="ID",
+                level=9,
+                name=dataset_name,
+                value_fields_json=FIELDS,
+            )
+
+    assert not (tmp_path / "cells" / "crosswalks" / crosswalk_name).exists()
+    assert not (tmp_path / "cells" / dataset_name).exists()
+
+    result = convert_v1(
+        input_path=source,
+        domain="ID",
+        level=9,
+        name=dataset_name,
+        value_fields_json=FIELDS,
+    )
+    assert result["crosswalk"] == crosswalk_name
 
 
 def test_refusals_cover_level_15_bad_gid_and_intensive_field(tmp_path, monkeypatch, capsys) -> None:

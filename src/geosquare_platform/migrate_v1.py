@@ -12,6 +12,7 @@ import hashlib
 import io
 import json
 import math
+import shutil
 import sys
 from importlib.metadata import version
 from pathlib import Path
@@ -20,7 +21,9 @@ from typing import Any
 from fastapi import HTTPException
 from geosquare_grid import GeosquareGrid as LegacyGeosquareGrid
 from geosquare_v2.errors import GeosquareError
+from geosquare_v2.geometry import profile_grid_crs, projected_cell_geometry
 from geosquare_v2.grid import GeosquareGrid
+from geosquare_v2.codec import side_cell_count
 from geosquare_v2.migration import LegacyV1Decoder, V1MigrationAdapter
 
 from .app import apply_crosswalk_data, data_root
@@ -33,6 +36,7 @@ from .cellstore import parse_value_fields
 
 TARGET_SEMANTICS = frozenset(("COUNT", "TOTAL"))
 METHOD = "v1_cell_area_crosswalk"
+UNALLOCATED_EPSILON = 1e-6
 
 
 class MigrationRejected(ValueError):
@@ -170,8 +174,48 @@ def _migration_report(
         "method": METHOD,
         "max_unallocated": max_unallocated,
         "per_source_u": per_source_u,
-        "sources_with_unallocated": [gid for gid, unallocated in per_source_u.items() if unallocated > 0],
+        "sources_with_unallocated": [
+            gid for gid, unallocated in per_source_u.items() if unallocated > UNALLOCATED_EPSILON
+        ],
     }
+
+
+def _projected_source_area(source_bounds: tuple[float, float, float, float], profile) -> float:
+    """Measure a V1 box after the same CRS transform used by V2 polyfill."""
+    try:
+        from pyproj import CRS, Transformer
+        from shapely.geometry import box
+        from shapely.ops import transform
+
+        transformer = Transformer.from_crs(
+            CRS.from_user_input("OGC:CRS84"),
+            CRS.from_user_input(profile_grid_crs(profile)),
+            always_xy=True,
+        )
+        projected = transform(transformer.transform, box(*source_bounds))
+        area = float(projected.area)
+    except Exception as exc:
+        raise MigrationRejected(f"could not measure the V1 source box in the profile grid CRS: {exc}") from exc
+    if not math.isfinite(area) or area <= 0:
+        raise MigrationRejected(f"V1 source box has no positive finite area in the profile grid CRS: {area!r}")
+    return area
+
+
+def _target_cell_area(grid: GeosquareGrid, records, level: int) -> float:
+    """Measure one returned target cell in the profile's authoritative grid CRS."""
+    target_gid = records[0].target_uri.rsplit(":", 1)[-1]
+    target_side = grid.profile.root_side_m / side_cell_count(level)
+    target_area = target_side * target_side
+    try:
+        returned_area = float(projected_cell_geometry(grid, target_gid).area)
+    except Exception as exc:
+        raise MigrationRejected(f"could not measure target cell {target_gid!r}: {exc}") from exc
+    if not math.isclose(target_area, returned_area, rel_tol=1e-12, abs_tol=1e-6):
+        raise MigrationRejected(
+            f"target cell area mismatch for {target_gid!r}: A_t={target_area!r}, "
+            f"returned geometry area={returned_area!r}"
+        )
+    return target_area
 
 
 def convert_v1(
@@ -233,15 +277,26 @@ def convert_v1(
             raise MigrationRejected(f"area overlap failed for v1 GID {gid!r}: {exc}") from exc
         if not records:
             raise MigrationRejected(f"area overlap returned no cells for v1 GID {gid!r}")
+        source_area = _projected_source_area(decoder.decode(gid).bounds, profile)
+        target_area = _target_cell_area(grid, records, level)
         raw_total = sum(float(record.coverage_ratio or 0.0) for record in records)
         if not math.isfinite(raw_total) or raw_total <= 0:
             raise MigrationRejected(f"area overlap returned no positive coverage for v1 GID {gid!r}")
-        unallocated = 1.0 - raw_total
+        unallocated = 1.0 - (raw_total * target_area) / source_area
         per_source_u[gid] = unallocated
-        if unallocated > max_unallocated:
-            offenders = [source for source, value in per_source_u.items() if value > max_unallocated]
+        if unallocated < -UNALLOCATED_EPSILON:
             raise MigrationRejected(
-                f"unallocated coverage exceeds --max-unallocated for sources: {offenders}"
+                f"unallocated coverage is negative for source {gid!r}: u={unallocated:.12g}; "
+                "the source and target area measurements are inconsistent"
+            )
+        if unallocated > max_unallocated:
+            offenders = [
+                f"{source} u={value:.12g}"
+                for source, value in per_source_u.items()
+                if value > max_unallocated
+            ]
+            raise MigrationRejected(
+                f"unallocated coverage exceeds --max-unallocated for sources: {', '.join(offenders)}"
             )
         for record in records:
             ratio = float(record.coverage_ratio or 0.0)
@@ -262,34 +317,41 @@ def convert_v1(
     if crosswalk_path.exists():
         raise MigrationRejected(f"crosswalk {crosswalk_name!r} already exists; refusing to overwrite")
     crosswalk_path.mkdir(parents=True, exist_ok=False)
-    (crosswalk_path / "crosswalk.csv").write_bytes(crosswalk_data)
-    crosswalk_manifest = validate_crosswalk(
-        crosswalk_data, domain_code=domain, level=level, weight_kind="area"
-    ).manifest
-    (crosswalk_path / "manifest.json").write_text(
-        json.dumps(crosswalk_manifest, indent=2) + "\n", encoding="utf-8"
-    )
-
-    result = apply_crosswalk_data(
-        validate_crosswalk(crosswalk_data, domain_code=domain, level=level, weight_kind="area"),
-        _source_csv(columns, gid_column, fields),
-        dataset_id=name,
-        value_columns=[field.name for field in fields],
-        field_semantics={field.name: field.semantics for field in fields},
-    )
-    report = _migration_report(
-        input_path=input_path,
-        input_data=input_data,
-        row_count=len(columns[gid_column]),
-        gids=gids,
-        domain=domain,
-        level=level,
-        max_unallocated=max_unallocated,
-        profile_version=str(getattr(profile, "profile_version", "")),
-        per_source_u=per_source_u,
-    )
     dataset_path = data_root() / name
-    (dataset_path / "migration_report.json").write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+    try:
+        (crosswalk_path / "crosswalk.csv").write_bytes(crosswalk_data)
+        crosswalk_manifest = validate_crosswalk(
+            crosswalk_data, domain_code=domain, level=level, weight_kind="area"
+        ).manifest
+        (crosswalk_path / "manifest.json").write_text(
+            json.dumps(crosswalk_manifest, indent=2) + "\n", encoding="utf-8"
+        )
+
+        result = apply_crosswalk_data(
+            validate_crosswalk(crosswalk_data, domain_code=domain, level=level, weight_kind="area"),
+            _source_csv(columns, gid_column, fields),
+            dataset_id=name,
+            value_columns=[field.name for field in fields],
+            field_semantics={field.name: field.semantics for field in fields},
+        )
+        report = _migration_report(
+            input_path=input_path,
+            input_data=input_data,
+            row_count=len(columns[gid_column]),
+            gids=gids,
+            domain=domain,
+            level=level,
+            max_unallocated=max_unallocated,
+            profile_version=str(getattr(profile, "profile_version", "")),
+            per_source_u=per_source_u,
+        )
+        (dataset_path / "migration_report.json").write_text(
+            json.dumps(report, indent=2) + "\n", encoding="utf-8"
+        )
+    except Exception:
+        shutil.rmtree(crosswalk_path, ignore_errors=True)
+        shutil.rmtree(dataset_path, ignore_errors=True)
+        raise
     return {**result, "migration_report": report, "crosswalk": crosswalk_name}
 
 
