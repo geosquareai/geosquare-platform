@@ -63,7 +63,9 @@ def test_stores_cells_with_a_valid_manifest(registry, tmp_path):
     assert result["manifest"]["domain_code"] == "ID"
     assert result["manifest"]["domain_id"] == 1
     assert result["manifest"]["identity"]["gid_column"] == "gid"
-    assert "geosquare-engine 0.1.0" in result["manifest"]["provenance"]["created_by"]
+    from importlib.metadata import version as installed_version
+
+    assert f"geosquare-engine {installed_version('geosquare-engine')}" in result["manifest"]["provenance"]["created_by"]
 
     table = read_cell_dataset(stored.path, registry=registry).table
     assert table.to_pydict() == {

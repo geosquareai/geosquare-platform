@@ -247,15 +247,15 @@ wheels = [
 
 [[package]]
 name = "geosquare-engine"
-version = "0.1.0"
+version = "0.2.0"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/ba/2e/37ab8ed56577e3e47fbc54f8473342c836d37fa12bee18499e5bf9100215/geosquare_engine-0.1.0.tar.gz", hash = "sha256:e793325e3ae800acbae2a479edf914f817581a50af342ffe02c9129a11a64432", size = 26787, upload-time = "2026-11-18T01:45:17.645Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/84/d0/3b3887bd9c965c74ff7260268c23fdd94243a5a5e8471b0a2f1771e86694/geosquare_engine-0.2.0.tar.gz", hash = "sha256:4fe267a615985bb3b385faf94b50c4b0e53fd4fcd6b77c980cd17edeef0af237", size = 43709, upload-time = "2026-11-20T10:09:51.809Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/c1/ae/042ba67efadf7abfe1800754185eb3bab475149e90fdaea4e5055ee99e34/geosquare_engine-0.1.0-cp311-abi3-macosx_10_12_x86_64.whl", hash = "sha256:822b04f8ece3884a4b39833ef7ee81f4cb5f7b687e0bbbfa9a9ef6d2a091b50d", size = 287472, upload-time = "2026-11-18T01:45:10.295Z" },
-    { url = "https://files.pythonhosted.org/packages/9e/83/746df145ce2c5803b6ea331157c56a9211ee1a3bd380623998eb7296017e/geosquare_engine-0.1.0-cp311-abi3-macosx_11_0_arm64.whl", hash = "sha256:39c233734024cfc8af138af78a73bedbff61a76d7cdd6f55bf99c6ff447e79d8", size = 283660, upload-time = "2026-11-18T01:45:11.748Z" },
-    { url = "https://files.pythonhosted.org/packages/d7/06/9405bd85c085bbd7d0c4c04e90214ad1cfbe2816bfbbbfe9e60f9e1845f3/geosquare_engine-0.1.0-cp311-abi3-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:30d67c5b8674d0164f3fc3ddc36ffb662a13bda848333381bfeebe91d3c56b31", size = 302266, upload-time = "2026-11-18T01:45:13.267Z" },
-    { url = "https://files.pythonhosted.org/packages/1f/ba/468b6acd057568079e8196a3fd7081c4185184402c93621e4dc41c88cb57/geosquare_engine-0.1.0-cp311-abi3-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:bc483ce2e4c4d6075dbd3b0ee6686f310a7c4c045f98fdcc5d2a8c25bfd75fbe", size = 311707, upload-time = "2026-11-18T01:45:14.853Z" },
-    { url = "https://files.pythonhosted.org/packages/36/a3/49b6c7f353971af1499d4eb37ff6f47113c050f076a0eab01d30303914e9/geosquare_engine-0.1.0-cp311-abi3-win_amd64.whl", hash = "sha256:fb9ed32e2b0c098d48b80748fa61a9454ec1a7b9abbda427add6da5b689b6c59", size = 171879, upload-time = "2026-11-18T01:45:16.169Z" },
+    { url = "https://files.pythonhosted.org/packages/1a/9e/5c14781d3bd87cffd9f461910ea31811eddb4506e7148316839d367358b6/geosquare_engine-0.2.0-cp39-abi3-macosx_10_12_x86_64.whl", hash = "sha256:b075b72a1348bb7a11de6f1ce943a1e70ec80d8d2a50999d14f477414538ddae", size = 304704, upload-time = "2026-11-20T10:09:44.309Z" },
+    { url = "https://files.pythonhosted.org/packages/c5/b8/06c3d1fc851b4eea03ed94b312323180e383cada5d47a748197d1f18c19b/geosquare_engine-0.2.0-cp39-abi3-macosx_11_0_arm64.whl", hash = "sha256:621f27583ab0302a69bc73622f0f24ff5e7d0b7315c692a00d983a4f1d1b0381", size = 299936, upload-time = "2026-11-20T10:09:45.964Z" },
+    { url = "https://files.pythonhosted.org/packages/33/29/011dc9e26747d0d5b8c1e525bda62809afaebbb7b78b15e6a910f4e6eaea/geosquare_engine-0.2.0-cp39-abi3-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:85553f5781a7d3e3b151e5a4612bf32c2cda9ed48d9f114350f53750cd0d277f", size = 320896, upload-time = "2026-11-20T10:09:47.649Z" },
+    { url = "https://files.pythonhosted.org/packages/03/a1/9394ff07d59fab6f32eba8392164b81330833fc891e3318a851fc6fd2697/geosquare_engine-0.2.0-cp39-abi3-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:9343b651ab9be227ecf308c5ab4c9f82026dcc5c69f7660f32c8d6606d69734f", size = 330435, upload-time = "2026-11-20T10:09:49.106Z" },
+    { url = "https://files.pythonhosted.org/packages/ce/17/f0b76894b97fc6e4d950b3ebcd5510860a1cb0367b28d7215ad82e39c1b3/geosquare_engine-0.2.0-cp39-abi3-win_amd64.whl", hash = "sha256:3f38d47e5262c25aca1d3a6557a601524d239ffbb049637bf4c3650206f9e012", size = 190910, upload-time = "2026-11-20T10:09:50.391Z" },
 ]
 
 [[package]]
@@ -292,7 +292,7 @@ test = [
 [package.metadata]
 requires-dist = [
     { name = "fastapi", specifier = ">=0.110" },
-    { name = "geosquare-engine", specifier = ">=0.1.0,<0.2" },
+    { name = "geosquare-engine", specifier = ">=0.2.0,<0.3" },
     { name = "geosquare-grid", marker = "extra == 'test'", specifier = "==1.1.1" },
     { name = "geosquare-v2", extras = ["table", "registry", "geo"], specifier = "==1.0.0" },
     { name = "httpx", marker = "extra == 'test'", specifier = ">=0.27" },
