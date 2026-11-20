@@ -19,6 +19,7 @@ from geosquare_engine.compact import contains
 
 from .cellstore import DATASET_ID_PATTERN, DatasetExists, ValueField, parse_value_fields, read_dataset, store_csv
 from .compactstore import COMPACT_ID_PATTERN, read_compact, store_compact_csv
+from .timestore import TIME_ID_PATTERN, join_time, read_time_dataset, store_time_csv
 from .crosswalk import CrosswalkRejected, crosswalk_csv, load_crosswalk, validate_crosswalk
 from .importer import ImportRejected, analyse, read_csv
 from .registry import load_registry
@@ -428,6 +429,78 @@ def compact_join(payload: dict = Body(...)) -> dict:
         "matched_cells": len(matched),
         "sums": {column: sum(float(row[column]) for row in matched) for column in columns},
     }
+
+
+_SEMANTICS = ("COUNT", "TOTAL", "MEASUREMENT", "CATEGORICAL")
+
+
+@app.post("/time-datasets", status_code=201)
+async def create_time_dataset(
+    file: UploadFile = File(...),
+    level: int = Form(...),
+    period_type: str = Form(...),
+    period_start: str = Form(...),
+    period_end: str = Form(...),
+    value_fields: str = Form(..., description="JSON array: name, semantics, unit, time_aggregation"),
+    bucket_hours: int | None = Form(None),
+) -> dict:
+    """Store one cell_time_values dataset (one row per cell and period). Rules come from geosquare-v2."""
+    try:
+        fields = json.loads(value_fields)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=422, detail="value_fields is not valid JSON") from exc
+    if not isinstance(fields, list) or not fields:
+        raise HTTPException(status_code=422, detail="value_fields must be a non-empty JSON array")
+    for field in fields:
+        if not isinstance(field, dict) or not isinstance(field.get("name"), str) or field.get("semantics") not in _SEMANTICS:
+            raise HTTPException(status_code=422, detail="each value field needs a name and a known semantics")
+    try:
+        return store_time_csv(
+            data_root(),
+            await file.read(),
+            level=level,
+            period_type=period_type,
+            period_start=period_start,
+            period_end=period_end,
+            value_fields=fields,
+            bucket_hours=bucket_hours,
+        )
+    except ImportRejected as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+def _time_path(dataset_id: str) -> Path:
+    if not TIME_ID_PATTERN.fullmatch(dataset_id):
+        raise HTTPException(status_code=404, detail="no such time dataset")
+    path = data_root() / dataset_id
+    if not path.is_dir():
+        raise HTTPException(status_code=404, detail="no such time dataset")
+    return path
+
+
+@app.post("/query/time-join")
+def time_join(payload: dict = Body(...)) -> dict:
+    """Internal. Count left rows that have a same-cell right row in an interval relation, and sum columns."""
+    _require_internal()
+    left_id = payload.get("left_id")
+    right_id = payload.get("right_id")
+    relation_name = payload.get("relation", "contained")
+    columns = payload.get("sum")
+    if not isinstance(left_id, str) or not isinstance(right_id, str) or not isinstance(relation_name, str):
+        raise HTTPException(status_code=422, detail="left_id, right_id and relation must be text")
+    if not isinstance(columns, list) or not columns or not all(isinstance(item, str) and item for item in columns):
+        raise HTTPException(status_code=422, detail="sum must be a non-empty list of column names")
+    try:
+        left = read_time_dataset(_time_path(left_id))
+        right = read_time_dataset(_time_path(right_id))
+        left_names = {field["name"] for field in left[0]["value_fields"]}
+        unknown = [column for column in columns if column not in left_names]
+        if unknown:
+            raise HTTPException(status_code=422, detail={"unknown_columns": unknown})
+        result = join_time(left, right, relation_name, columns)
+    except ImportRejected as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"left_id": left_id, "right_id": right_id, "relation": relation_name, **result}
 
 
 # Catalog and cell-profile routes intentionally read only the manifest until a profile
