@@ -15,7 +15,10 @@ import geosquare_engine as gs
 from geosquare_v2 import read_cell_dataset
 from geosquare_v2.errors import GeosquareError
 
+from geosquare_engine.compact import contains
+
 from .cellstore import DATASET_ID_PATTERN, DatasetExists, ValueField, parse_value_fields, read_dataset, store_csv
+from .compactstore import COMPACT_ID_PATTERN, read_compact, store_compact_csv
 from .crosswalk import CrosswalkRejected, crosswalk_csv, load_crosswalk, validate_crosswalk
 from .importer import ImportRejected, analyse, read_csv
 from .registry import load_registry
@@ -376,6 +379,55 @@ def join_query(payload: dict = Body(...)) -> dict:
                 key = f"{dataset_id}.{column}" if column_counts[column] > 1 else column
                 group[key] = group.get(key, 0.0) + float(rows[gid][column])
     return {"rows": [groups[key] for key in sorted(groups)], "cells_joined": len(common)}
+
+
+@app.post("/datasets/compact", status_code=201)
+async def create_compact_dataset(file: UploadFile = File(...)) -> dict:
+    """Store a cell_compact_set (gid, level). The rows must already be canonical. Nothing is repaired."""
+    try:
+        return store_compact_csv(data_root(), await file.read())
+    except DatasetExists as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ImportRejected as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+def _compact_path(compact_id: str) -> Path:
+    if not COMPACT_ID_PATTERN.fullmatch(compact_id):
+        raise HTTPException(status_code=404, detail="no such compact set")
+    path = data_root() / compact_id
+    if not path.is_dir():
+        raise HTTPException(status_code=404, detail="no such compact set")
+    return path
+
+
+@app.post("/query/compact-join")
+def compact_join(payload: dict = Body(...)) -> dict:
+    """Sum value columns over the cells a compact set covers. Each cell is matched by ancestor lookup."""
+    _require_internal()
+    compact_id = payload.get("compact_id")
+    dataset_id = payload.get("dataset_id")
+    columns = payload.get("sum")
+    if not isinstance(compact_id, str) or not isinstance(dataset_id, str):
+        raise HTTPException(status_code=422, detail="compact_id and dataset_id must be text")
+    if not isinstance(columns, list) or not columns or not all(isinstance(item, str) and item for item in columns):
+        raise HTTPException(status_code=422, detail="sum must be a non-empty list of column names")
+    try:
+        compact_rows = read_compact(_compact_path(compact_id))
+    except ImportRejected as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    metadata, source_rows = _dataset_table(dataset_id)
+    unknown = [column for column in columns if column not in set(metadata["value_fields"])]
+    if unknown:
+        raise HTTPException(status_code=422, detail={"unknown_columns": unknown})
+    members = frozenset(gid for gid, _ in compact_rows)
+    matched = [row for row in source_rows if contains(members, row["gid"])]
+    return {
+        "compact_id": compact_id,
+        "dataset_id": dataset_id,
+        "matched_cells": len(matched),
+        "sums": {column: sum(float(row[column]) for row in matched) for column in columns},
+    }
 
 
 # Catalog and cell-profile routes intentionally read only the manifest until a profile
