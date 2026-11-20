@@ -71,6 +71,25 @@ The platform now exposes `GET /datasets/{dataset_id}/rollup?level=L&sum=col1,col
 
 Crosswalk administration uses `POST /crosswalks` with a CSV containing `sumber_id,gid,bobot`, plus `name`, `domain_code`, `level`, and `weight_kind` form fields. `GET /crosswalks/{name}` reads its manifest and counts. `POST /crosswalks/{name}/apply` allocates numeric source columns to cells, checks conservation, and stores the resulting COUNT dataset.
 
+## L10 V1 to V2 converter (tool only)
+
+The converter reads one caller-supplied V1 CSV and writes a new V2 cell dataset. It does not scan, select, or migrate team data. Runtime conversion uses only `geosquare-v2`, including its `LegacyV1Decoder` and `V1MigrationAdapter`; it does not need `geosquare-grid`. The test suite uses `geosquare-grid` as a test-only dependency to verify decoder bounds parity for random ASEAN points. The dataset directory contains `migration_report.json` with the source hash, versions, coverage gaps, and conversion settings.
+
+```zsh
+GSQ_PLATFORM_DATA=data/cells uv run python -m geosquare_platform.migrate_v1 \\
+  --input synthetic-v1.csv \\
+  --domain ID \\
+  --level 9 \\
+  --name ID-L9-0123456789ab \\
+  --value-fields '[{"name":"population","logical_type":"numeric","semantics":"COUNT","unit":null}]'
+```
+
+Required flags are `--input`, `--domain`, `--level`, `--name`, and `--value-fields`. The optional `--gid-column` defaults to `gid_v1`; `--max-unallocated` defaults to `1e-6`. Value fields must be numeric and have `COUNT` or `TOTAL` semantics. The command refuses level-15 V1 GIDs, invalid V1 GIDs, unsupported value semantics, missing required flags, existing dataset names, excessive unallocated coverage, and empty area overlap. It refuses names outside the platform dataset ID contract instead of guessing a storage path. The converter no longer checks parity against `geosquare-grid` on each run; the test suite performs that check.
+
+Tests and examples use synthetic CSVs only. Do not run this tool on `geosquare-risk`, `pandaigadai`, `dukcapil`, or `bank_tanah`.
+
 ## Bahasa Indonesia
 
 API Fase 3 sekarang menyediakan rollup, join inner, dan administrasi crosswalk. Crosswalk memvalidasi bobot positif, jumlah bobot per sumber sama dengan 1, GID sesuai level manifest, serta tidak ada pasangan sumber-GID ganda. Proses apply menolak sumber yang tidak dikenal dan memeriksa konservasi jumlah sebelum menyimpan dataset sel.
+
+Tool L10 hanya membaca satu CSV yang diberikan pengguna. Tool ini tidak memindahkan data tim. GID level 15, GID tidak valid, bobot yang tidak aman, dan nama dataset yang sudah ada akan ditolak.

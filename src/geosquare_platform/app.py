@@ -168,29 +168,28 @@ def get_crosswalk(name: str) -> dict:
     return {"name": name, "manifest": crosswalk.manifest, **crosswalk.summary()}
 
 
-@app.post("/crosswalks/{name}/apply")
-async def apply_crosswalk(
-    name: str,
-    file: UploadFile = File(...),
-    dataset_id: str = Form(...),
-    value_columns: str = Form(...),
-) -> dict:
-    if not DATASET_ID_PATTERN.fullmatch(name):
-        raise HTTPException(status_code=404, detail="no such crosswalk")
-    if not DATASET_ID_PATTERN.fullmatch(dataset_id):
-        raise HTTPException(status_code=422, detail="dataset_id does not match the dataset ID pattern")
-    path = data_root() / "crosswalks" / name
-    if not path.is_dir():
-        raise HTTPException(status_code=404, detail="no such crosswalk")
-    try:
-        crosswalk = load_crosswalk(path)
-    except (CrosswalkRejected, OSError, json.JSONDecodeError) as exc:
-        raise HTTPException(status_code=422, detail=f"crosswalk fails validation: {exc}") from exc
+
+def apply_crosswalk_data(
+    crosswalk,
+    source_data: bytes,
+    *,
+    dataset_id: str,
+    value_columns: list[str],
+    field_semantics: Mapping[str, str] | None = None,
+) -> dict[str, Any]:
+    """Apply a validated crosswalk and store the resulting numeric dataset.
+
+    This is the shared implementation for the HTTP route and the v1 migration tool.
+    Values are allocated only by the stored crosswalk weights, and conservation is
+    checked before the dataset is written.
+    """
     if crosswalk.manifest["domain_code"] != "ID":
         raise HTTPException(status_code=422, detail="platform datasets currently support domain_code ID only")
-    columns = _requested_columns(value_columns)
+    columns = value_columns
+    if not columns or len(set(columns)) != len(columns):
+        raise HTTPException(status_code=422, detail="value_columns must list each column once")
     try:
-        source = read_csv(await file.read())
+        source = read_csv(source_data)
     except ImportRejected as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     if "sumber_id" not in source:
@@ -244,7 +243,8 @@ async def apply_crosswalk(
     for gid in sorted(allocated):
         output_rows.append({"gid": gid, **{column: allocated[gid][column] for column in columns}})
     output = _csv_bytes(output_rows, ["gid", *columns])
-    fields = [ValueField(column, "numeric", "COUNT", None) for column in columns]
+    semantics = field_semantics or {}
+    fields = [ValueField(column, "numeric", semantics.get(column, "COUNT"), None) for column in columns]
     try:
         stored = store_csv(
             load_registry(),
@@ -259,6 +259,32 @@ async def apply_crosswalk(
     except (ImportRejected, GeosquareError) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return {"summary": stored.summary(), "conservation": conservation}
+
+
+@app.post("/crosswalks/{name}/apply")
+async def apply_crosswalk(
+    name: str,
+    file: UploadFile = File(...),
+    dataset_id: str = Form(...),
+    value_columns: str = Form(...),
+) -> dict:
+    if not DATASET_ID_PATTERN.fullmatch(name):
+        raise HTTPException(status_code=404, detail="no such crosswalk")
+    if not DATASET_ID_PATTERN.fullmatch(dataset_id):
+        raise HTTPException(status_code=422, detail="dataset_id does not match the dataset ID pattern")
+    path = data_root() / "crosswalks" / name
+    if not path.is_dir():
+        raise HTTPException(status_code=404, detail="no such crosswalk")
+    try:
+        crosswalk = load_crosswalk(path)
+    except (CrosswalkRejected, OSError, json.JSONDecodeError) as exc:
+        raise HTTPException(status_code=422, detail=f"crosswalk fails validation: {exc}") from exc
+    return apply_crosswalk_data(
+        crosswalk,
+        await file.read(),
+        dataset_id=dataset_id,
+        value_columns=_requested_columns(value_columns),
+    )
 
 
 @app.get("/datasets/{dataset_id}/rollup")

@@ -19,7 +19,7 @@ from .cellstore import DATASET_ID_PATTERN
 from .importer import ImportRejected, read_csv
 
 CROSSWALK_FORMAT_VERSION = "1.0"
-WEIGHT_KINDS = frozenset(("luas", "bangunan", "populasi", "lainnya"))
+WEIGHT_KINDS = frozenset(("area", "luas", "bangunan", "populasi", "lainnya"))
 # The eleven ASEAN domains in registry 2.0.0 (same list as geosquare_v2.crosswalk).
 KNOWN_DOMAIN_CODES = frozenset(("BN", "ID", "KH", "LA", "MM", "MY", "PH", "SG", "TH", "TL", "VN"))
 _REQUIRED_COLUMNS = frozenset(("sumber_id", "gid", "bobot"))

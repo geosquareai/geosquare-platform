@@ -5,14 +5,14 @@ description = "GeoSquare platform: import tables with GID columns, store them as
 requires-python = ">=3.11"
 dependencies = [
   "geosquare-engine>=0.1.0,<0.2",
-  "geosquare-v2[table,registry]==1.0.0",
+  "geosquare-v2[table,registry,geo]==1.0.0",
   "fastapi>=0.110",
   "python-multipart>=0.0.9",
   "uvicorn>=0.29",
 ]
 
 [project.optional-dependencies]
-test = ["pytest>=8", "httpx>=0.27"]
+test = ["pytest>=8", "httpx>=0.27", "geosquare-grid==1.1.1"]
 
 [build-system]
 requires = ["hatchling"]
