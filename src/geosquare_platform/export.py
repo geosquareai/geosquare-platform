@@ -52,7 +52,7 @@ def _merge(target: dict[str, Any], source: dict[str, Any]) -> None:
 @router.get("/datasets/{dataset_id}/export")
 def export_dataset(
     dataset_id: str,
-    k: int = Query(...),
+    k: int = Query(5),
     count_field: str = Query(..., alias="count"),
 ) -> dict[str, Any]:
     """Export a disjoint k-anonymous rollup of one cell dataset.
@@ -60,6 +60,8 @@ def export_dataset(
     The dataset's declared COUNT field is the anonymity count. Declared TOTAL
     fields are summed through parent cells. Other semantics are dropped and
     reported; no geometry or grid math is performed by the platform.
+
+    k defaults to 5 and must be at least 2.
     """
     if k < 2:
         raise HTTPException(status_code=422, detail="k must be at least 2")

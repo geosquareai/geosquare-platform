@@ -41,12 +41,15 @@ def count_field() -> dict[str, object]:
     return {"name": "people", "logical_type": "numeric", "semantics": "COUNT", "unit": "persons"}
 
 
-def test_export_requires_k_and_rejects_k_below_two(client):
+def test_export_defaults_k_to_five_and_rejects_k_below_two(client):
     parent = gs.encode(8, 0, 4)
     cell = gs.children(parent)[0]
     dataset = create_dataset(client, [{"gid": cell, "people": 3}], [count_field()])
 
-    assert client.get(f"/datasets/{dataset}/export", params={"count": "people"}).status_code == 422
+    default = client.get(f"/datasets/{dataset}/export", params={"count": "people"})
+
+    assert default.status_code == 200, default.text
+    assert default.json()["k"] == 5
     assert client.get(f"/datasets/{dataset}/export", params={"k": 1, "count": "people"}).status_code == 422
 
 
