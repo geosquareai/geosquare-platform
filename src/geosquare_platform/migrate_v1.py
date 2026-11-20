@@ -19,7 +19,6 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import HTTPException
-from geosquare_grid import GeosquareGrid as LegacyGeosquareGrid
 from geosquare_v2.errors import GeosquareError
 from geosquare_v2.geometry import profile_grid_crs, projected_cell_geometry
 from geosquare_v2.grid import GeosquareGrid
@@ -115,22 +114,6 @@ def _read_input(path: Path, gid_column: str, fields) -> tuple[bytes, dict[str, l
     return data, columns, distinct
 
 
-def _run_parity_gate(gids: list[str], decoder: LegacyV1Decoder) -> None:
-    legacy_grid = LegacyGeosquareGrid()
-    mismatches: list[str] = []
-    for gid in gids:
-        try:
-            expected = decoder.decode(gid).bounds
-            actual = tuple(float(value) for value in legacy_grid.gid_to_bound(gid))
-        except Exception as exc:
-            raise MigrationRejected(f"invalid v1 GID {gid!r}: {exc}") from exc
-        if any(abs(left - right) > 1e-9 for left, right in zip(actual, expected, strict=True)):
-            mismatches.append(f"{gid}: geosquare-grid={actual!r}, LegacyV1Decoder={expected!r}")
-    if mismatches:
-        detail = "\n".join(mismatches[:5])
-        raise MigrationRejected(f"v1 parity gate failed; first mismatches:\n{detail}")
-
-
 def _source_csv(columns: dict[str, list[str | None]], gid_column: str, fields) -> bytes:
     output = io.StringIO(newline="")
     writer = csv.writer(output, lineterminator="\n")
@@ -165,7 +148,7 @@ def _migration_report(
         "input_sha256": hashlib.sha256(input_data).hexdigest(),
         "input_row_count": row_count,
         "distinct_v1_gid_count": len(gids),
-        "geosquare_grid_version": version("geosquare-grid"),
+        "v1_reference": "geosquare-grid==1.1.1 (verified by tests/test_v1_parity.py)",
         "geosquare_v2_version": version("geosquare-v2"),
         "profile_version": profile_version,
         "registry_version": REGISTRY_VERSION,
@@ -250,9 +233,6 @@ def convert_v1(
             raise MigrationRejected(f"invalid v1 GID {gid!r}: {exc}") from exc
         if decoded.level == 15:
             raise MigrationRejected(f"v1 GID {gid!r} is at level 15; level 15 migration is refused")
-
-    # This is deliberately before creating a crosswalk or dataset directory.
-    _run_parity_gate(gids, decoder)
 
     destination = data_root() / name
     if destination.exists():

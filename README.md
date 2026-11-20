@@ -73,7 +73,7 @@ Crosswalk administration uses `POST /crosswalks` with a CSV containing `sumber_i
 
 ## L10 V1 to V2 converter (tool only)
 
-The converter reads one caller-supplied V1 CSV and writes a new V2 cell dataset. It does not scan, select, or migrate team data. It first checks V1 bound parity against `LegacyV1Decoder`, then calls the V2 `V1MigrationAdapter` area migration, stores an `area` crosswalk, and uses the existing crosswalk apply and conservation checks. The dataset directory contains `migration_report.json` with the source hash, versions, coverage gaps, and conversion settings.
+The converter reads one caller-supplied V1 CSV and writes a new V2 cell dataset. It does not scan, select, or migrate team data. Runtime conversion uses only `geosquare-v2`, including its `LegacyV1Decoder` and `V1MigrationAdapter`; it does not need `geosquare-grid`. The test suite uses `geosquare-grid` as a test-only dependency to verify decoder bounds parity for random ASEAN points. The dataset directory contains `migration_report.json` with the source hash, versions, coverage gaps, and conversion settings.
 
 ```zsh
 GSQ_PLATFORM_DATA=data/cells uv run python -m geosquare_platform.migrate_v1 \\
@@ -84,7 +84,7 @@ GSQ_PLATFORM_DATA=data/cells uv run python -m geosquare_platform.migrate_v1 \\
   --value-fields '[{"name":"population","logical_type":"numeric","semantics":"COUNT","unit":null}]'
 ```
 
-Required flags are `--input`, `--domain`, `--level`, `--name`, and `--value-fields`. The optional `--gid-column` defaults to `gid_v1`; `--max-unallocated` defaults to `1e-6`. Value fields must be numeric and have `COUNT` or `TOTAL` semantics. The command refuses level-15 V1 GIDs, invalid V1 GIDs, failed parity, unsupported value semantics, missing required flags, existing dataset names, excessive unallocated coverage, and empty area overlap. It refuses names outside the platform dataset ID contract instead of guessing a storage path.
+Required flags are `--input`, `--domain`, `--level`, `--name`, and `--value-fields`. The optional `--gid-column` defaults to `gid_v1`; `--max-unallocated` defaults to `1e-6`. Value fields must be numeric and have `COUNT` or `TOTAL` semantics. The command refuses level-15 V1 GIDs, invalid V1 GIDs, unsupported value semantics, missing required flags, existing dataset names, excessive unallocated coverage, and empty area overlap. It refuses names outside the platform dataset ID contract instead of guessing a storage path. The converter no longer checks parity against `geosquare-grid` on each run; the test suite performs that check.
 
 Tests and examples use synthetic CSVs only. Do not run this tool on `geosquare-risk`, `pandaigadai`, `dukcapil`, or `bank_tanah`.
 

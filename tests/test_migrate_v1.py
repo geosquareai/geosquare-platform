@@ -4,7 +4,6 @@ import csv
 import hashlib
 import io
 import json
-import random
 import subprocess
 import sys
 from pathlib import Path
@@ -12,7 +11,6 @@ from pathlib import Path
 import pytest
 from geosquare_grid import GeosquareGrid as V1Grid
 from geosquare_v2 import read_cell_dataset
-from geosquare_v2.migration import LegacyV1Decoder
 
 from geosquare_platform.crosswalk import load_crosswalk
 from geosquare_platform.migrate_v1 import convert_v1, main
@@ -28,18 +26,6 @@ def write_input(path: Path, rows: list[tuple[str, str]], gid_column: str = "gid_
         f"{gid_column},count\n" + "\n".join(f"{gid},{count}" for gid, count in rows) + "\n",
         encoding="utf-8",
     )
-
-
-def test_v1_bounds_match_decoder_for_200_random_asean_points() -> None:
-    grid = V1Grid()
-    decoder = LegacyV1Decoder()
-    rng = random.Random(20261119)
-    for _ in range(200):
-        longitude = rng.uniform(95.0, 141.0)
-        latitude = rng.uniform(-11.0, 6.0)
-        level = rng.randint(1, 14)
-        gid = grid.lonlat_to_gid(longitude, latitude, level)
-        assert grid.gid_to_bound(gid) == pytest.approx(decoder.decode(gid).bounds, abs=1e-9)
 
 
 def test_known_indonesia_conversion_normalizes_weights_and_writes_provenance(tmp_path, monkeypatch) -> None:
@@ -70,7 +56,7 @@ def test_known_indonesia_conversion_normalizes_weights_and_writes_provenance(tmp
     assert report["input_sha256"] == hashlib.sha256(source.read_bytes()).hexdigest()
     assert report["input_row_count"] == 1
     assert report["distinct_v1_gid_count"] == 1
-    assert report["geosquare_grid_version"] == "1.1.1"
+    assert report["v1_reference"] == "geosquare-grid==1.1.1 (verified by tests/test_v1_parity.py)"
     assert report["geosquare_v2_version"] == "1.0.0"
     assert report["profile_version"]
     assert report["registry_version"] == "2.0.0"
