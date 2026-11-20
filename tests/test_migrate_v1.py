@@ -57,7 +57,9 @@ def test_known_indonesia_conversion_normalizes_weights_and_writes_provenance(tmp
     assert report["input_row_count"] == 1
     assert report["distinct_v1_gid_count"] == 1
     assert report["v1_reference"] == "geosquare-grid==1.1.1 (verified by tests/test_v1_parity.py)"
-    assert report["geosquare_v2_version"] == "1.0.0"
+    from importlib.metadata import version as installed_version
+
+    assert report["geosquare_v2_version"] == installed_version("geosquare-v2")
     assert report["profile_version"]
     assert report["registry_version"] == "2.0.0"
     assert report["domain"] == "ID"
