@@ -1,11 +1,8 @@
-"""Store and read `cell_compact_set` datasets (E13).
+"""Store and read `cell_compact_set` datasets (E13) for the platform.
 
-A compact set is a list of `gid, level` rows. The rules live in
-`geosquare_engine.compact`. This module checks the rows with those rules and
-writes one manifest and one Parquet file.
-
-It does not use the CellDataset reader from geosquare-v2 yet. That package does
-not know this dataset type. Add it to geosquare-v2 before a release.
+The writer and reader are geosquare-v2's `compact_store`. Every write and every
+read is checked against the compact-set rules. This module parses the upload,
+maps errors to upload errors, and keeps the platform's dataset IDs.
 """
 
 from __future__ import annotations
@@ -13,21 +10,18 @@ from __future__ import annotations
 import csv
 import hashlib
 import io
-import json
 import re
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-import pyarrow as pa
-import pyarrow.parquet as pq
-from geosquare_engine.compact import validate_compact_set
+from geosquare_v2.compact_store import read_compact_set, write_compact_set
+from geosquare_v2.errors import CellDatasetError
 
-from .cellstore import DatasetExists, generator_label
+from .cellstore import DatasetExists
 from .importer import ImportRejected
 
 COMPACT_ID_PATTERN = re.compile(r"ID-COMPACT-[0-9a-f]{12}")
-DOMAIN = "ID"
+DOMAIN_CODE = "ID"
 DOMAIN_ID = 1
 COLUMNS = ["gid", "level"]
 
@@ -55,83 +49,36 @@ def parse_compact_csv(data: bytes) -> list[tuple[str, int]]:
     return rows
 
 
-def check_rows(rows: list[tuple[str, int]]) -> None:
-    """Apply the cell_compact_set rules from geosquare-engine. Any error rejects the file."""
-    try:
-        validate_compact_set(rows)
-    except ValueError as exc:  # CompactSetError and invalid GIDs are both ValueError
-        raise ImportRejected(str(exc)) from exc
-
-
-def _manifest(rows: list[tuple[str, int]], created_at: str) -> dict[str, Any]:
-    levels = sorted({level for _, level in rows})
-    return {
-        "manifest_version": "1.0",
-        "dataset_type": "cell_compact_set",
-        "grid_system": "geosquare",
-        "grid_version": "v2",
-        "domain_code": DOMAIN,
-        "domain_id": DOMAIN_ID,
-        "levels_present": levels,
-        "identity": {"gid_column": "gid", "level_column": "level", "unique_gid": True, "mixed_levels": True},
-        "storage": {
-            "parquet_compression": "zstd",
-            "sorted_by": ["gid"],
-            "row_count": len(rows),
-            "partitioning": [],
-        },
-        "provenance": {
-            "created_at": created_at,
-            "created_by": generator_label(),
-            "generator": "compact_csv_import",
-            "rules": "geosquare-v2 docs/cell-dataset-contract.md section 2; geosquare-engine compact helpers",
-        },
-    }
-
-
 def store_compact_csv(root: Path, data: bytes, *, created_at: str | None = None) -> dict[str, Any]:
     """Check a compact set and write it under `root`. The ID comes from the file content."""
     rows = parse_compact_csv(data)
-    check_rows(rows)
     dataset_id = "ID-COMPACT-" + hashlib.sha256(data).hexdigest()[:12]
     destination = Path(root) / dataset_id
     if destination.exists():
         raise DatasetExists(f"dataset {dataset_id} already exists")
-
-    stored = sorted(rows)
-    table = pa.table(
-        {
-            "gid": pa.array([gid for gid, _ in stored], type=pa.string()),
-            "level": pa.array([level for _, level in stored], type=pa.int8()),
-        }
-    )
-    stamp = created_at or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    manifest = _manifest(stored, stamp)
-    staging = destination.with_name(destination.name + ".tmp")
-    (staging / "data").mkdir(parents=True, exist_ok=False)
-    pq.write_table(table, staging / "data" / "compact.parquet", compression="zstd")
-    (staging / "manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True), encoding="utf-8")
-    staging.rename(destination)
+    try:
+        manifest = write_compact_set(
+            destination,
+            rows,
+            domain_code=DOMAIN_CODE,
+            domain_id=DOMAIN_ID,
+            created_at=created_at,
+        )
+    except CellDatasetError as exc:
+        raise ImportRejected(str(exc)) from exc
     return {
         "dataset_id": dataset_id,
         "dataset_type": "cell_compact_set",
-        "rows": len(rows),
+        "rows": manifest["storage"]["row_count"],
         "levels_present": manifest["levels_present"],
         "valid": True,
     }
 
 
 def read_compact(path: Path) -> list[tuple[str, int]]:
-    """Read a stored compact set and check it again. A stored file that breaks the rules is rejected."""
+    """Read a stored compact set. A stored set that breaks a rule is rejected."""
     try:
-        manifest = json.loads((path / "manifest.json").read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        raise ImportRejected("manifest is missing or not JSON") from exc
-    if manifest.get("dataset_type") != "cell_compact_set":
-        raise ImportRejected("dataset is not a cell_compact_set")
-    table = pq.read_table(path / "data" / "compact.parquet")
-    rows = list(zip(table.column("gid").to_pylist(), table.column("level").to_pylist()))
-    if len(rows) != manifest["storage"]["row_count"]:
-        raise ImportRejected("row count does not match the manifest")
-    check_rows(rows)
-    return rows
+        _, rows = read_compact_set(path)
+    except CellDatasetError as exc:
+        raise ImportRejected(str(exc)) from exc
+    return list(rows)
