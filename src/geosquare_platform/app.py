@@ -25,6 +25,13 @@ app = FastAPI(title="GeoSquare Platform", version="0.1.0")
 app.include_router(map_router)
 
 DATA_ENV = "GSQ_PLATFORM_DATA"  # folder for stored datasets; default data/cells
+INTERNAL_ENV = "GSQ_INTERNAL_ROUTES"  # set to "1" only on an internal host
+
+
+def _require_internal() -> None:
+    """Hide routes that return grouped or per-cell values. They answer 404 unless enabled."""
+    if os.environ.get(INTERNAL_ENV) != "1":
+        raise HTTPException(status_code=404, detail="Not Found")
 
 
 def data_root() -> Path:
@@ -293,7 +300,8 @@ def rollup_dataset(
     level: int = Query(...),
     sum_columns: str = Query(..., alias="sum"),
 ) -> dict:
-    """Internal compatibility route; external exports must use ``/export``."""
+    """Internal route for grouped values. External exports must use ``/export``."""
+    _require_internal()
     metadata, source_rows = _dataset_table(dataset_id)
     dataset_level = metadata["level"]
     if level < 0 or level > dataset_level:
@@ -315,6 +323,7 @@ def rollup_dataset(
 
 @app.post("/query/join")
 def join_query(payload: dict = Body(...)) -> dict:
+    _require_internal()
     dataset_ids = payload.get("dataset_ids")
     level = payload.get("level")
     columns = payload.get("sum")

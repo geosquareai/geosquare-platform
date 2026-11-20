@@ -6,7 +6,7 @@ import geosquare_engine as gs
 import pytest
 from fastapi.testclient import TestClient
 
-from geosquare_platform.app import app
+from geosquare_platform.app import INTERNAL_ENV, app
 from geosquare_platform.crosswalk import CrosswalkRejected, validate_crosswalk
 
 
@@ -98,7 +98,8 @@ def test_crosswalk_apply_unknown_id_and_conservation(client):
     assert body["conservation"]["pop"]["allocated_sum"] == pytest.approx(14)
 
 
-def test_rollup_totals_and_join(client):
+def test_rollup_totals_and_join(client, monkeypatch):
+    monkeypatch.setenv(INTERNAL_ENV, "1")
     first = create_dataset(client, [(gid(10), "2"), (gid(11), "3"), (gid(12), "5")], "population")
     second = create_dataset(client, [(gid(10), "7"), (gid(11), "11")], "population")
 
@@ -115,7 +116,8 @@ def test_rollup_totals_and_join(client):
     assert row[f"{second}.population"] == pytest.approx(18)
 
 
-def test_missing_and_invalid_query_paths(client):
+def test_missing_and_invalid_query_paths(client, monkeypatch):
+    monkeypatch.setenv(INTERNAL_ENV, "1")
     assert client.get("/crosswalks/ID-L9-aaaaaaaaaaaa").status_code == 404
     assert client.get("/crosswalks/not-a-name").status_code == 404
     dataset = create_dataset(client, [(gid(10), "2")])
@@ -133,3 +135,13 @@ def test_crosswalk_rejects_unknown_domain_and_out_of_range_level():
     with pytest.raises(CrosswalkRejected, match="integer from 0 to 14"):
         check(data, domain_code="ID", level=99, weight_kind="luas")
     assert check(data, domain_code="ID", level=2, weight_kind="luas").summary() == {"sources": 1, "rows": 1, "cells": 1}
+
+
+def test_rollup_and_join_are_hidden_unless_internal(client, monkeypatch):
+    monkeypatch.delenv(INTERNAL_ENV, raising=False)
+    first = create_dataset(client, [(gid(10), "2")], "population")
+    second = create_dataset(client, [(gid(10), "7")], "population")
+    assert client.get(f"/datasets/{first}/rollup", params={"level": 8, "sum": "population"}).status_code == 404
+    assert client.post("/query/join", json={"dataset_ids": [first, second], "level": 8, "sum": ["population"]}).status_code == 404
+    monkeypatch.setenv(INTERNAL_ENV, "0")
+    assert client.get(f"/datasets/{first}/rollup", params={"level": 8, "sum": "population"}).status_code == 404
