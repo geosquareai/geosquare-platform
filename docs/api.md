@@ -21,7 +21,8 @@ Kode error yang sering muncul:
 | GET | `/datasets/{id}` | publik | Baca lagi dataset dan cek manifest |
 | GET | `/datasets/{id}/export` | publik | Export dengan k-anonymity |
 | GET | `/datasets/{id}/cells` | publik | Sel dalam kotak WGS 84 |
-| GET | `/catalog` | publik | Daftar dataset dari manifest |
+| GET | `/catalog` | publik | Daftar dataset dari manifest. Filter `bbox` (kotak) dan `gid` (cakupan tepat) |
+| GET | `/datasets/{id}/coverage` | publik | Cakupan tepat dataset: himpunan sel kompak |
 | GET | `/cells/{gid}/profile` | publik | Nilai satu sel dan induknya |
 | POST | `/crosswalks` | publik | Simpan crosswalk |
 | GET | `/crosswalks/{name}` | publik | Baca crosswalk |
@@ -87,6 +88,12 @@ Baca dataset lagi dan cek manifest-nya. Jawaban berisi manifest lengkap. Jika ce
 Daftar metadata semua dataset. Hanya membaca manifest, tidak membuka file Parquet.
 
 Query `bbox=min_lon,min_lat,max_lon,max_lat` (opsional): hanya dataset yang kotak cakupannya (`extent`, manifest 1.1) menyentuh kotak ini. Dataset tanpa `extent`, misalnya manifest 1.0, tidak ikut. Ini uji kotak (bounding box), bukan uji sel per sel. Kotak yang tidak valid dijawab 422.
+
+Query `gid=<sel>` (opsional): hanya dataset yang cakupan tepatnya memuat sel ini, baik sel itu sendiri maupun di bawah sel induk yang tersimpan. Ini uji tepat. GID yang tidak valid dijawab 422. Panggilan pertama untuk sebuah dataset membangun cakupannya dari data, lalu menyimpannya di `<data>/coverage/<dataset_id>.json`. Cache itu indeks platform, bukan bagian dari kontrak dataset.
+
+### GET /datasets/{dataset_id}/coverage
+
+Cakupan tepat dataset: himpunan sel kompak, dihitung dari kolom `gid` lalu disimpan di cache. Dipakai peta untuk menggambar cakupan.
 
 ### GET /cells/{gid}/profile
 
