@@ -184,3 +184,42 @@ def test_is_stale_follows_the_refresh_rhythm():
     assert is_stale("2026-11-22T00:00:00Z", "daily", now=now) is False
     assert is_stale("2020-01-01T00:00:00Z", "once", now=now) is False
     assert is_stale("2020-01-01T00:00:00Z", None, now=now) is None
+
+
+def test_catalog_bbox_keeps_only_datasets_that_touch_the_box(data_root):
+    registry = load_registry()
+    fields = parse_value_fields(json.loads(FIELDS))
+    store_csv(
+        registry,
+        data_root,
+        csv_rows([(gid(10), "0.2")]),
+        value_fields=fields,
+        governance=Governance(license="internal-test", share_policy="internal"),
+    )
+    # A folder with an unreadable manifest is listed without bbox, and never matches a box.
+    broken = data_root / "ID-L9-broken00000"
+    broken.mkdir(parents=True)
+    (broken / "manifest.json").write_text("{", encoding="utf-8")
+    client = TestClient(app)
+
+    everything = client.get("/catalog").json()
+    assert len(everything) == 2
+
+    own = next(entry for entry in everything if entry.get("extent"))["extent"]["bbox_wgs84"]
+    min_lon, min_lat, max_lon, max_lat = own
+    touching = client.get("/catalog", params={"bbox": f"{min_lon},{min_lat},{max_lon},{max_lat}"}).json()
+    assert [entry["dataset_id"] for entry in touching] == [
+        entry["dataset_id"] for entry in everything if entry.get("extent")
+    ]
+
+    away = client.get(
+        "/catalog",
+        params={"bbox": f"{min_lon + 5},{min_lat + 5},{max_lon + 5},{max_lat + 5}"},
+    ).json()
+    assert away == []
+
+
+def test_catalog_bbox_rejects_a_malformed_box(data_root):
+    response = TestClient(app).get("/catalog", params={"bbox": "1,2,3"})
+
+    assert response.status_code == 422
