@@ -33,6 +33,7 @@ from .timestore import TIME_ID_PATTERN, join_time, read_time_dataset, store_time
 from .crosswalk import CrosswalkRejected, crosswalk_csv, load_crosswalk, validate_crosswalk
 from .importer import ImportRejected, analyse, read_csv
 from .registry import load_registry
+from .map_routes import _parse_bbox
 from .map_routes import router as map_router
 
 app = FastAPI(title="GeoSquare Platform", version="0.1.0")
@@ -552,6 +553,18 @@ def _read_catalog_manifest(path: Path) -> dict[str, Any]:
     return manifest
 
 
+def _touches(extent: Any, query: tuple[float, float, float, float]) -> bool:
+    """True when a manifest extent's bounding box overlaps the query box. False when there is no extent."""
+    if not isinstance(extent, Mapping):
+        return False
+    box = extent.get("bbox_wgs84")
+    if not isinstance(box, list) or len(box) != 4:
+        return False
+    min_lon, min_lat, max_lon, max_lat = box
+    q_min_lon, q_min_lat, q_max_lon, q_max_lat = query
+    return min_lon <= q_max_lon and max_lon >= q_min_lon and min_lat <= q_max_lat and max_lat >= q_min_lat
+
+
 def _refresh_of(manifest: Mapping[str, Any]) -> str | None:
     """The refresh rhythm a manifest 1.1 declares. None for manifest 1.0, which has no governance block."""
     governance = manifest.get("governance")
@@ -610,9 +623,22 @@ def _profile_values(row: dict[str, Any] | None, value_fields: list[dict[str, Any
 
 
 @app.get("/catalog")
-def catalog() -> list[dict[str, Any]]:
-    """List dataset metadata without opening parquet data files."""
-    return _catalog_entries()
+def catalog(
+    bbox: str | None = Query(
+        None,
+        description="min_lon,min_lat,max_lon,max_lat. Keep datasets whose covered extent touches this box.",
+    ),
+) -> list[dict[str, Any]]:
+    """List dataset metadata without opening parquet data files.
+
+    With bbox, keep only datasets whose extent (manifest 1.1) touches the box. Datasets without an
+    extent, such as manifest 1.0, are left out. This is a box test, not an exact cell test.
+    """
+    entries = _catalog_entries()
+    if bbox is None:
+        return entries
+    query = _parse_bbox(bbox)
+    return [entry for entry in entries if _touches(entry.get("extent"), query)]
 
 
 @app.get("/cells/{gid}/profile")
