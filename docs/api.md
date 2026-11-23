@@ -58,13 +58,21 @@ Form:
 |---|---|
 | `file` | CSV dengan kolom GID dan kolom nilai |
 | `value_fields` | JSON array, misalnya `[{"name":"share","logical_type":"numeric","semantics":"MEASUREMENT","unit":"ratio"}]` |
+| `license` | **Wajib.** Lisensi atau syarat data sumber. Upload tanpa ini ditolak (422). |
+| `share_policy` | **Wajib.** `internal`, `k_anon_only`, atau `public`. Upload tanpa ini ditolak (422). |
+| `owner`, `title`, `source_name` | Opsional. Teks untuk katalog. |
+| `refresh` | Opsional. `once` (default), `daily`, `weekly`, `monthly`, `yearly`, atau `irregular`. Dipakai untuk badge basi di katalog. |
 
 Setiap item di `value_fields` punya:
 
 - `name`: nama kolom di CSV. Nama yang dicadangkan kontrak tidak boleh dipakai, misalnya `coverage_ratio`.
 - `logical_type`: `numeric` atau `categorical`.
-- `semantics`: `COUNT`, `TOTAL`, `MEASUREMENT`, atau `CATEGORICAL`.
+- `semantics`: `COUNT`, `TOTAL`, `DENSITY`, `MEASUREMENT`, `RATE`, atau `CATEGORICAL`.
 - `unit`: teks atau `null`.
+- `space_aggregation` (opsional): cara menggabungkan nilai sel anak saat naik level. Jika kosong, dipakai default dari `semantics`: `COUNT`/`TOTAL` → `sum`, `DENSITY` → `weighted_mean` dengan bobot `area`, `MEASUREMENT` → `median`, `CATEGORICAL` → `majority_weighted`, `RATE` → `none` (perlu bobot penyebut dulu).
+- `space_weight` (opsional): `null`, `area`, atau nama kolom `COUNT`/`TOTAL` lain di dataset yang sama.
+
+Manifest yang disimpan memakai format 1.1. Platform mengisi sendiri statistik kolom, cakupan (`extent`, kotak WGS 84), dan hash isi file.
 
 Query: `confirm_digit_gid`.
 
@@ -145,6 +153,8 @@ Form:
 | `file` | CSV data sumber dengan kolom `sumber_id` dan kolom nilai |
 | `dataset_id` | ID untuk dataset sel baru |
 | `value_columns` | Daftar kolom nilai, dipisah koma |
+| `license` | **Wajib.** Lisensi atau syarat data sumber. Tanpa ini, permintaan ditolak (422). |
+| `share_policy` | **Wajib.** `internal`, `k_anon_only`, atau `public`. Tanpa ini, permintaan ditolak (422). |
 
 Platform menolak sumber yang tidak ada di crosswalk. Platform juga memeriksa bahwa jumlah nilai di sel sama dengan jumlah nilai sumber. Jika tidak sama, dataset tidak disimpan.
 

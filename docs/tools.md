@@ -7,13 +7,13 @@ Alat ini dijalankan dari terminal. Semua contoh memakai `uv run`.
 Demo menjalankan langkah upload, deteksi, simpan, dan cek manifest lewat API.
 
 ```zsh
-uv run python -m geosquare_platform.demo cells.csv --numeric share
+uv run python -m geosquare_platform.demo cells.csv --numeric share --license "lisensi-internal" --share-policy internal
 ```
 
 Untuk data KYL (50.676 sel, level 12), ganti nama kolom `coverage_ratio` menjadi `share_in_aoi`. Nilainya tidak berubah.
 
 ```zsh
-uv run python -m geosquare_platform.demo kyl_cells_50m.csv --numeric share_in_aoi
+uv run python -m geosquare_platform.demo kyl_cells_50m.csv --numeric share_in_aoi --license "lisensi-internal" --share-policy internal
 GSQ_KYL_CSV=kyl_cells_50m.csv uv run pytest -q tests/test_demo.py
 ```
 
@@ -27,10 +27,12 @@ GSQ_PLATFORM_DATA=data/cells uv run python -m geosquare_platform.migrate_v1 \
   --domain ID \
   --level 9 \
   --name ID-L9-0123456789ab \
+  --license "lisensi-internal" \
+  --share-policy internal \
   --value-fields '[{"name":"population","logical_type":"numeric","semantics":"COUNT","unit":null}]'
 ```
 
-Flag wajib: `--input`, `--domain`, `--level`, `--name`, dan `--value-fields`.
+Flag wajib: `--input`, `--domain`, `--level`, `--name`, `--license`, `--share-policy`, dan `--value-fields`.
 
 Flag opsional:
 

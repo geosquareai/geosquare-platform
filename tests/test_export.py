@@ -31,7 +31,7 @@ def create_dataset(
     response = client.post(
         "/datasets",
         files={"file": ("data.csv", dataset_csv(rows, fields), "text/csv")},
-        data={"value_fields": json.dumps(fields)},
+        data={"value_fields": json.dumps(fields), "license": "internal-test", "share_policy": "internal"},
     )
     assert response.status_code == 201, response.text
     return response.json()["dataset_id"]

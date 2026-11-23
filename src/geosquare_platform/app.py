@@ -17,7 +17,17 @@ from geosquare_v2.errors import GeosquareError
 
 from geosquare_engine.compact import contains
 
-from .cellstore import DATASET_ID_PATTERN, DatasetExists, ValueField, parse_value_fields, read_dataset, store_csv
+from .cellstore import (
+    DATASET_ID_PATTERN,
+    DatasetExists,
+    Governance,
+    ValueField,
+    is_stale,
+    parse_governance,
+    parse_value_fields,
+    read_dataset,
+    store_csv,
+)
 from .compactstore import COMPACT_ID_PATTERN, read_compact, store_compact_csv
 from .timestore import TIME_ID_PATTERN, join_time, read_time_dataset, store_time_csv
 from .crosswalk import CrosswalkRejected, crosswalk_csv, load_crosswalk, validate_crosswalk
@@ -103,7 +113,13 @@ async def import_analyse(file: UploadFile = File(...), confirm_digit_gid: bool =
 @app.post("/datasets", status_code=201)
 async def create_dataset(
     file: UploadFile = File(...),
-    value_fields: str = Form(..., description="JSON array: name, logical_type, semantics, unit"),
+    value_fields: str = Form(..., description="JSON array: name, logical_type, semantics, unit, optional space_aggregation and space_weight"),
+    licence: str | None = Form(None, alias="license", description="Required. Licence or terms of the source data."),
+    share_policy: str | None = Form(None, description="Required. internal, k_anon_only or public."),
+    owner: str | None = Form(None),
+    title: str | None = Form(None),
+    source_name: str | None = Form(None),
+    refresh: str | None = Form(None, description="once (default), daily, weekly, monthly, yearly or irregular."),
     confirm_digit_gid: bool = False,
 ) -> dict:
     """Detect the GID column and level, check every row, and store the cells with a manifest."""
@@ -114,11 +130,15 @@ async def create_dataset(
     if not isinstance(raw, list):
         raise HTTPException(status_code=422, detail="value_fields must be a JSON array")
     try:
+        governance = parse_governance(
+            licence, share_policy, title=title, owner=owner, source_name=source_name, refresh=refresh
+        )
         stored = store_csv(
             load_registry(),
             data_root(),
             await file.read(),
             value_fields=parse_value_fields(raw),
+            governance=governance,
             confirm_digit_gid=confirm_digit_gid,
         )
     except DatasetExists as exc:
@@ -187,6 +207,7 @@ def apply_crosswalk_data(
     dataset_id: str,
     value_columns: list[str],
     field_semantics: Mapping[str, str] | None = None,
+    governance: Governance,
 ) -> dict[str, Any]:
     """Apply a validated crosswalk and store the resulting numeric dataset.
 
@@ -262,6 +283,7 @@ def apply_crosswalk_data(
             data_root(),
             output,
             value_fields=fields,
+            governance=governance,
             dataset_id=dataset_id,
             confirm_digit_gid=True,
         )
@@ -278,6 +300,8 @@ async def apply_crosswalk(
     file: UploadFile = File(...),
     dataset_id: str = Form(...),
     value_columns: str = Form(...),
+    licence: str | None = Form(None, alias="license", description="Required. Licence or terms of the source data."),
+    share_policy: str | None = Form(None, description="Required. internal, k_anon_only or public."),
 ) -> dict:
     if not DATASET_ID_PATTERN.fullmatch(name):
         raise HTTPException(status_code=404, detail="no such crosswalk")
@@ -290,11 +314,16 @@ async def apply_crosswalk(
         crosswalk = load_crosswalk(path)
     except (CrosswalkRejected, OSError, json.JSONDecodeError) as exc:
         raise HTTPException(status_code=422, detail=f"crosswalk fails validation: {exc}") from exc
+    try:
+        governance = parse_governance(licence, share_policy)
+    except ImportRejected as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     return apply_crosswalk_data(
         crosswalk,
         await file.read(),
         dataset_id=dataset_id,
         value_columns=_requested_columns(value_columns),
+        governance=governance,
     )
 
 
@@ -523,6 +552,15 @@ def _read_catalog_manifest(path: Path) -> dict[str, Any]:
     return manifest
 
 
+def _refresh_of(manifest: Mapping[str, Any]) -> str | None:
+    """The refresh rhythm a manifest 1.1 declares. None for manifest 1.0, which has no governance block."""
+    governance = manifest.get("governance")
+    if not isinstance(governance, Mapping):
+        return None
+    refresh = governance.get("refresh")
+    return refresh if isinstance(refresh, str) else None
+
+
 def _catalog_entry(path: Path) -> dict[str, Any]:
     try:
         manifest = _read_catalog_manifest(path)
@@ -543,12 +581,16 @@ def _catalog_entry(path: Path) -> dict[str, Any]:
             "profile_version": manifest.get("profile_version"),
             "registry_version": manifest.get("registry_version"),
             "created_at": provenance.get("created_at"),
+            "governance": manifest.get("governance"),
+            "extent": manifest.get("extent"),
+            "stale": is_stale(provenance.get("created_at"), _refresh_of(manifest)),
             "value_fields": [
                 {
                     "name": field.get("name"),
                     "semantics": field.get("semantics"),
                     "unit": field.get("unit"),
                     "nullable": field.get("nullable"),
+                    "space_aggregation": field.get("space_aggregation"),
                 }
                 for field in value_fields
             ],

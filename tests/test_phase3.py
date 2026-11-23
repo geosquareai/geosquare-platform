@@ -33,9 +33,11 @@ def create_dataset(client, rows, column="value") -> str:
         "/datasets",
         files={"file": ("data.csv", dataset_csv(rows, column), "text/csv")},
         data={
+            "license": "internal-test",
+            "share_policy": "internal",
             "value_fields": json.dumps(
                 [{"name": column, "logical_type": "numeric", "semantics": "COUNT", "unit": None}]
-            )
+            ),
         },
     )
     assert response.status_code == 201, response.text
@@ -81,7 +83,7 @@ def test_crosswalk_apply_unknown_id_and_conservation(client):
     unknown = client.post(
         f"/crosswalks/{name}/apply",
         files={"file": ("source.csv", b"sumber_id,pop\ndesa-x,3\n")},
-        data={"dataset_id": "ID-L9-bbbbbbbbbbbb", "value_columns": "pop"},
+        data={"dataset_id": "ID-L9-bbbbbbbbbbbb", "value_columns": "pop", "license": "internal-test", "share_policy": "internal"},
     )
     assert unknown.status_code == 422
     assert unknown.json()["detail"]["unknown_sumber_ids"] == ["desa-x"]
@@ -89,7 +91,7 @@ def test_crosswalk_apply_unknown_id_and_conservation(client):
     applied = client.post(
         f"/crosswalks/{name}/apply",
         files={"file": ("source.csv", b"sumber_id,pop\ndesa-a,10\ndesa-b,4\n")},
-        data={"dataset_id": "ID-L9-bbbbbbbbbbbb", "value_columns": "pop"},
+        data={"dataset_id": "ID-L9-bbbbbbbbbbbb", "value_columns": "pop", "license": "internal-test", "share_policy": "internal"},
     )
     assert applied.status_code == 200, applied.text
     body = applied.json()

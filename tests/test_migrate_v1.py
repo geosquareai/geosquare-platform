@@ -39,7 +39,7 @@ def test_known_indonesia_conversion_normalizes_weights_and_writes_provenance(tmp
         domain="ID",
         level=9,
         name="ID-L9-0123456789ab",
-        value_fields_json=FIELDS,
+        value_fields_json=FIELDS, license_text="internal-test", share_policy="internal",
     )
 
     crosswalk = load_crosswalk(tmp_path / "cells" / "crosswalks" / result["crosswalk"])
@@ -92,7 +92,7 @@ def test_root_edge_straddling_coverage_is_refused_by_default_and_allowed_with_th
                 "5",
                 "--name",
                 "ID-L5-abcdefabcdef",
-                "--value-fields",
+                "--license", "internal-test", "--share-policy", "internal", "--value-fields",
                 FIELDS,
             ]
         )
@@ -109,7 +109,7 @@ def test_root_edge_straddling_coverage_is_refused_by_default_and_allowed_with_th
         domain="ID",
         level=5,
         name="ID-L5-abcdefabcdef",
-        value_fields_json=FIELDS,
+        value_fields_json=FIELDS, license_text="internal-test", share_policy="internal",
         max_unallocated=1.0,
     )
     assert result["migration_report"]["per_source_u"][gid] > 0
@@ -127,7 +127,7 @@ def test_jakarta_l9_to_v2_l12_has_negligible_unallocated_coverage(tmp_path, monk
         domain="ID",
         level=12,
         name="ID-L12-0123456789ab",
-        value_fields_json=FIELDS,
+        value_fields_json=FIELDS, license_text="internal-test", share_policy="internal",
     )
 
     u = result["migration_report"]["per_source_u"][gid]
@@ -154,7 +154,7 @@ def test_failure_after_crosswalk_write_removes_outputs_and_allows_retry(tmp_path
                 domain="ID",
                 level=9,
                 name=dataset_name,
-                value_fields_json=FIELDS,
+                value_fields_json=FIELDS, license_text="internal-test", share_policy="internal",
             )
 
     assert not (tmp_path / "cells" / "crosswalks" / crosswalk_name).exists()
@@ -165,7 +165,7 @@ def test_failure_after_crosswalk_write_removes_outputs_and_allows_retry(tmp_path
         domain="ID",
         level=9,
         name=dataset_name,
-        value_fields_json=FIELDS,
+        value_fields_json=FIELDS, license_text="internal-test", share_policy="internal",
     )
     assert result["crosswalk"] == crosswalk_name
 
@@ -184,7 +184,7 @@ def test_refusals_cover_level_15_bad_gid_and_intensive_field(tmp_path, monkeypat
             "9",
             "--name",
             "ID-L9-111111111111",
-            "--value-fields",
+            "--license", "internal-test", "--share-policy", "internal", "--value-fields",
             FIELDS,
             "--max-unallocated",
             "1",
@@ -203,7 +203,7 @@ def test_refusals_cover_level_15_bad_gid_and_intensive_field(tmp_path, monkeypat
             "9",
             "--name",
             "ID-L9-222222222222",
-            "--value-fields",
+            "--license", "internal-test", "--share-policy", "internal", "--value-fields",
             FIELDS,
         ]
     ) == 2
@@ -223,7 +223,7 @@ def test_refusals_cover_level_15_bad_gid_and_intensive_field(tmp_path, monkeypat
             "9",
             "--name",
             "ID-L9-333333333333",
-            "--value-fields",
+            "--license", "internal-test", "--share-policy", "internal", "--value-fields",
             intensive,
         ]
     ) == 2
@@ -243,6 +243,10 @@ def test_existing_name_and_missing_required_flags_are_refused(tmp_path, monkeypa
         "9",
         "--name",
         "ID-L9-444444444444",
+        "--license",
+        "internal-test",
+        "--share-policy",
+        "internal",
         "--value-fields",
         FIELDS,
         "--max-unallocated",
