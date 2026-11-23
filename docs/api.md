@@ -86,6 +86,8 @@ Baca dataset lagi dan cek manifest-nya. Jawaban berisi manifest lengkap. Jika ce
 
 Daftar metadata semua dataset. Hanya membaca manifest, tidak membuka file Parquet.
 
+Query `bbox=min_lon,min_lat,max_lon,max_lat` (opsional): hanya dataset yang kotak cakupannya (`extent`, manifest 1.1) menyentuh kotak ini. Dataset tanpa `extent`, misalnya manifest 1.0, tidak ikut. Ini uji kotak (bounding box), bukan uji sel per sel. Kotak yang tidak valid dijawab 422.
+
 ### GET /cells/{gid}/profile
 
 Nilai untuk satu sel, induknya, dan dataset yang punya level lebih halus dari sel itu. Hanya dataset domain ID yang ikut. Dataset lain dilewati dan alasannya dicatat.
