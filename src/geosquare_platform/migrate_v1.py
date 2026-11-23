@@ -26,7 +26,7 @@ from geosquare_v2.codec import side_cell_count
 from geosquare_v2.migration import LegacyV1Decoder, V1MigrationAdapter
 
 from .app import apply_crosswalk_data, data_root
-from .cellstore import DATASET_ID_PATTERN, REGISTRY_VERSION
+from .cellstore import DATASET_ID_PATTERN, REGISTRY_VERSION, parse_governance
 from .crosswalk import CrosswalkRejected, crosswalk_csv, validate_crosswalk
 from .importer import ImportRejected, read_csv
 from .registry import load_registry
@@ -62,6 +62,13 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--level", required=True, type=int, choices=range(0, 15), help="target V2 level (0-14)")
     parser.add_argument("--name", required=True, help="new V2 dataset name, for example ID-L9-0123456789ab")
     parser.add_argument("--value-fields", required=True, help="JSON array in the POST /datasets format")
+    parser.add_argument("--license", required=True, dest="license_text", help="required: licence or terms of the source data")
+    parser.add_argument(
+        "--share-policy",
+        required=True,
+        choices=["internal", "k_anon_only", "public"],
+        help="required: who may see the converted dataset",
+    )
     parser.add_argument("--gid-column", default="gid_v1", help="V1 GID column (default: gid_v1)")
     parser.add_argument(
         "--max-unallocated",
@@ -208,6 +215,8 @@ def convert_v1(
     level: int,
     name: str,
     value_fields_json: str,
+    license_text: str,
+    share_policy: str,
     gid_column: str = "gid_v1",
     max_unallocated: float = 1e-6,
 ) -> dict[str, Any]:
@@ -222,6 +231,10 @@ def convert_v1(
         raise MigrationRejected("--max-unallocated must be a finite number >= 0")
     if not DATASET_ID_PATTERN.fullmatch(name):
         raise MigrationRejected("--name must match the dataset ID pattern, for example ID-L9-0123456789ab")
+    try:
+        governance = parse_governance(license_text, share_policy)
+    except ImportRejected as exc:
+        raise MigrationRejected(str(exc)) from exc
 
     fields = _parse_fields(value_fields_json)
     input_data, columns, gids = _read_input(input_path, gid_column, fields)
@@ -313,6 +326,7 @@ def convert_v1(
             dataset_id=name,
             value_columns=[field.name for field in fields],
             field_semantics={field.name: field.semantics for field in fields},
+            governance=governance,
         )
         report = _migration_report(
             input_path=input_path,
@@ -352,6 +366,8 @@ def main(argv: list[str] | None = None) -> int:
             level=args.level,
             name=args.name,
             value_fields_json=args.value_fields,
+            license_text=args.license_text,
+            share_policy=args.share_policy,
             gid_column=args.gid_column,
             max_unallocated=args.max_unallocated,
         )

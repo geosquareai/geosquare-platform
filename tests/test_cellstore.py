@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 from geosquare_v2 import CellDatasetError, read_cell_dataset
 
 from geosquare_platform.app import app
-from geosquare_platform.cellstore import DatasetExists, ValueField, parse_value_fields, read_dataset, store_csv
+from geosquare_platform.cellstore import DatasetExists, Governance, ValueField, parse_value_fields, read_dataset, store_csv
 from geosquare_platform.importer import ImportRejected
 from geosquare_platform.registry import load_registry
 
@@ -20,6 +20,10 @@ VALUE_FIELDS_JSON = json.dumps(
         {"name": "zone", "logical_type": "categorical", "semantics": "CATEGORICAL", "unit": None},
     ]
 )
+
+
+GOVERNANCE = Governance(license="internal-test", share_policy="internal", owner="data team")
+GOV_FORM = {"license": "internal-test", "share_policy": "internal", "owner": "data team"}
 
 
 @pytest.fixture(scope="module")
@@ -53,7 +57,7 @@ GOOD = csv(
 
 
 def test_stores_cells_with_a_valid_manifest(registry, tmp_path):
-    stored = store_csv(registry, tmp_path, GOOD, value_fields=[NUMERIC, CATEGORY])
+    stored = store_csv(registry, tmp_path, GOOD, value_fields=[NUMERIC, CATEGORY], governance=GOVERNANCE)
 
     assert stored.dataset_id.startswith("ID-L9-")
     assert (stored.level, stored.rows, stored.unique_cells) == (9, 3, 3)
@@ -77,7 +81,7 @@ def test_stores_cells_with_a_valid_manifest(registry, tmp_path):
 
 def test_key_column_is_stored_as_gid_and_extra_columns_are_reported(registry, tmp_path):
     data = csv([(cell(10), "0.25", "A", "x")], header=("cell", "share", "zone", "note"))
-    stored = store_csv(registry, tmp_path, data, value_fields=[NUMERIC, CATEGORY])
+    stored = store_csv(registry, tmp_path, data, value_fields=[NUMERIC, CATEGORY], governance=GOVERNANCE)
 
     assert stored.dropped_columns == ("note",)
     table = read_cell_dataset(stored.path, registry=registry).table
@@ -87,26 +91,26 @@ def test_key_column_is_stored_as_gid_and_extra_columns_are_reported(registry, tm
 def test_duplicate_gid_is_rejected_and_nothing_is_written(registry, tmp_path):
     data = csv([(cell(10), "0.25", "A"), (cell(10), "0.5", "B")])
     with pytest.raises(CellDatasetError, match="duplicate"):
-        store_csv(registry, tmp_path, data, value_fields=[NUMERIC, CATEGORY])
+        store_csv(registry, tmp_path, data, value_fields=[NUMERIC, CATEGORY], governance=GOVERNANCE)
     assert list(tmp_path.iterdir()) == []
 
 
 def test_bad_number_names_the_row_and_column(registry, tmp_path):
     data = csv([(cell(10), "0.25", "A"), (cell(11), "n/a", "B")])
     with pytest.raises(ImportRejected, match="row 2, column 'share'"):
-        store_csv(registry, tmp_path, data, value_fields=[NUMERIC, CATEGORY])
+        store_csv(registry, tmp_path, data, value_fields=[NUMERIC, CATEGORY], governance=GOVERNANCE)
 
 
 def test_empty_value_is_rejected(registry, tmp_path):
     data = csv([(cell(10), "0.25", "")])
     with pytest.raises(ImportRejected, match="row 1, column 'zone'"):
-        store_csv(registry, tmp_path, data, value_fields=[NUMERIC, CATEGORY])
+        store_csv(registry, tmp_path, data, value_fields=[NUMERIC, CATEGORY], governance=GOVERNANCE)
 
 
 def test_same_upload_twice_is_refused(registry, tmp_path):
-    store_csv(registry, tmp_path, GOOD, value_fields=[NUMERIC, CATEGORY])
+    store_csv(registry, tmp_path, GOOD, value_fields=[NUMERIC, CATEGORY], governance=GOVERNANCE)
     with pytest.raises(DatasetExists):
-        store_csv(registry, tmp_path, GOOD, value_fields=[NUMERIC, CATEGORY])
+        store_csv(registry, tmp_path, GOOD, value_fields=[NUMERIC, CATEGORY], governance=GOVERNANCE)
 
 
 def test_value_field_list_is_checked():
@@ -119,7 +123,7 @@ def test_value_field_list_is_checked():
 
 
 def test_tampered_row_count_fails_the_check(registry, tmp_path):
-    stored = store_csv(registry, tmp_path, GOOD, value_fields=[NUMERIC, CATEGORY])
+    stored = store_csv(registry, tmp_path, GOOD, value_fields=[NUMERIC, CATEGORY], governance=GOVERNANCE)
     manifest_path = stored.path / "manifest.json"
     document = json.loads(manifest_path.read_text(encoding="utf-8"))
     document["storage"]["row_count"] = 99
@@ -134,7 +138,7 @@ def test_api_store_then_read_back(data_root):
     created = client.post(
         "/datasets",
         files={"file": ("cells.csv", GOOD, "text/csv")},
-        data={"value_fields": VALUE_FIELDS_JSON},
+        data={"value_fields": VALUE_FIELDS_JSON, **GOV_FORM},
     )
     assert created.status_code == 201, created.text
     body = created.json()
@@ -147,7 +151,7 @@ def test_api_store_then_read_back(data_root):
 
 def test_api_second_upload_returns_409(data_root):
     client = TestClient(app)
-    payload = {"value_fields": VALUE_FIELDS_JSON}
+    payload = {"value_fields": VALUE_FIELDS_JSON, **GOV_FORM}
     first = client.post("/datasets", files={"file": ("cells.csv", GOOD)}, data=payload)
     second = client.post("/datasets", files={"file": ("cells.csv", GOOD)}, data=payload)
     assert first.status_code == 201
@@ -170,7 +174,7 @@ def test_api_get_rejects_unknown_and_malformed_ids(data_root):
 
 def test_api_get_reports_a_tampered_dataset(data_root):
     client = TestClient(app)
-    created = client.post("/datasets", files={"file": ("cells.csv", GOOD)}, data={"value_fields": VALUE_FIELDS_JSON})
+    created = client.post("/datasets", files={"file": ("cells.csv", GOOD)}, data={"value_fields": VALUE_FIELDS_JSON, **GOV_FORM})
     dataset_id = created.json()["dataset_id"]
     manifest_path = data_root / dataset_id / "manifest.json"
     document = json.loads(manifest_path.read_text(encoding="utf-8"))

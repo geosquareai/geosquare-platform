@@ -30,9 +30,11 @@ def create_values(client, rows) -> str:
         files={"file": ("data.csv", body.encode(), "text/csv")},
         params={"confirm_digit_gid": "true"},
         data={
+            "license": "internal-test",
+            "share_policy": "internal",
             "value_fields": json.dumps(
                 [{"name": "population", "logical_type": "numeric", "semantics": "COUNT", "unit": None}]
-            )
+            ),
         },
     )
     assert response.status_code == 201, response.text

@@ -37,7 +37,15 @@ def _value_fields(numeric: Sequence[str], categorical: Sequence[str]) -> list[di
     return fields
 
 
-def run(csv_path: Path, data_root: Path, *, numeric: Sequence[str] = (), categorical: Sequence[str] = ()) -> dict:
+def run(
+    csv_path: Path,
+    data_root: Path,
+    *,
+    numeric: Sequence[str] = (),
+    categorical: Sequence[str] = (),
+    license_text: str,
+    share_policy: str,
+) -> dict:
     """Run the steps in order and print each result. Raise DemoFailed on the first failure."""
     csv_path = Path(csv_path)
     data = csv_path.read_bytes()
@@ -63,7 +71,7 @@ def run(csv_path: Path, data_root: Path, *, numeric: Sequence[str] = (), categor
         created = client.post(
             "/datasets",
             files={"file": (csv_path.name, data)},
-            data={"value_fields": json.dumps(fields)},
+            data={"value_fields": json.dumps(fields), "license": license_text, "share_policy": share_policy},
         )
         if created.status_code != 201:
             raise DemoFailed(f"store: HTTP {created.status_code}: {created.text}")
@@ -94,9 +102,23 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--data-root", type=Path, default=Path("data/demo/cells"), help="where datasets are stored")
     parser.add_argument("--numeric", action="append", default=[], help="value column that holds numbers")
     parser.add_argument("--categorical", action="append", default=[], help="value column that holds text labels")
+    parser.add_argument("--license", required=True, dest="license_text", help="required: licence or terms of the data")
+    parser.add_argument(
+        "--share-policy",
+        required=True,
+        choices=["internal", "k_anon_only", "public"],
+        help="required: who may see the stored dataset",
+    )
     args = parser.parse_args(argv)
     try:
-        run(args.csv, args.data_root, numeric=args.numeric, categorical=args.categorical)
+        run(
+            args.csv,
+            args.data_root,
+            numeric=args.numeric,
+            categorical=args.categorical,
+            license_text=args.license_text,
+            share_policy=args.share_policy,
+        )
     except DemoFailed as exc:
         print(f"FAIL: {exc}", file=sys.stderr)
         return 1

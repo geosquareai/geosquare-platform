@@ -33,7 +33,7 @@ def upload(client: TestClient, rows: list[tuple[str, str]]):
     return client.post(
         "/datasets",
         files={"file": ("cells.csv", csv(rows), "text/csv")},
-        data={"value_fields": VALUE_FIELDS},
+        data={"value_fields": VALUE_FIELDS, "license": "internal-test", "share_policy": "internal"},
     )
 
 
@@ -58,7 +58,7 @@ def test_catalog_lists_two_datasets_from_manifests(data_root):
     assert entries[0]["row_count"] == 1
     assert entries[0]["unique_cell_count"] == 1
     assert entries[0]["value_fields"] == [
-        {"name": "share", "semantics": "MEASUREMENT", "unit": "ratio", "nullable": False}
+        {"name": "share", "semantics": "MEASUREMENT", "unit": "ratio", "nullable": False, "space_aggregation": "median"}
     ]
 
 

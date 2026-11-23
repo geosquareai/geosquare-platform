@@ -1,8 +1,12 @@
 """Step 2 of the platform: store a checked GID table as a cell dataset with a manifest.
 
-The layout is the cell dataset contract in geosquare-v2 (format 1.0): one directory with
+The layout is the cell dataset contract in geosquare-v2 (format 1.1): one directory with
 `manifest.json` and `data/*.parquet`. The reference writer validates the table and the
 manifest, and reading a dataset back validates it again.
+
+The writer fills the machine fields itself: column statistics, the covered extent, and the
+content hash of the data file. The uploader must state the governance fields: the licence and
+the sharing policy. See geosquare-v2 docs/dataset-metadata.md.
 
 This version writes one Parquet file per dataset. Partitioning by GID prefix is not used yet.
 """
@@ -21,14 +25,33 @@ from pathlib import Path
 from typing import Any
 
 import pyarrow as pa
-from geosquare_v2 import CellDataset, DomainRegistry
+import pyarrow.compute as pc
+from geosquare_v2 import CellDataset, DomainRegistry, GeosquareGrid
+from geosquare_v2.cell_metadata import data_file_entry
+from geosquare_v2.crs import wgs84_to_grid_transformer
 from geosquare_v2.errors import GeosquareError
+from pyproj.enums import TransformDirection
 
 from .importer import ImportRejected, analyse, read_csv
 
 DOMAIN = "ID"
 REGISTRY_VERSION = "2.0.0"  # the registry loader accepts only this version
+MANIFEST_VERSION = "1.1"
+SPEC_VERSION = "2.0"
 DATASET_ID_PATTERN = re.compile(r"ID-L(\d{1,2})-[0-9a-f]{12}")
+SHARE_POLICIES = frozenset(("internal", "k_anon_only", "public"))
+REFRESH_RATES = frozenset(("once", "daily", "weekly", "monthly", "yearly", "irregular"))
+# Default rollup rule per semantics (docs/dataset-metadata.md, section 4). The uploader can change it.
+# RATE has no default weight, so it defaults to "none" (not rolled up) until the uploader names one.
+DEFAULT_SPACE_AGGREGATION: dict[str, tuple[str, str | None]] = {
+    "COUNT": ("sum", None),
+    "TOTAL": ("sum", None),
+    "DENSITY": ("weighted_mean", "area"),
+    "MEASUREMENT": ("median", None),
+    "CATEGORICAL": ("majority_weighted", None),
+}
+# A dataset is treated as stale after this many days without an update, per refresh rhythm.
+STALE_AFTER_DAYS = {"daily": 2, "weekly": 14, "monthly": 62, "yearly": 400}
 
 
 def generator_label() -> str:
@@ -38,9 +61,10 @@ def generator_label() -> str:
         f"(geosquare-engine {version('geosquare-engine')}, geosquare-v2 {version('geosquare-v2')})"
     )
 
+
 # Logical type from the upload -> Parquet type. The reference checks the semantics for each type.
 _PARQUET_TYPES = {"numeric": "float64", "categorical": "string"}
-_FIELD_KEYS = frozenset(("name", "logical_type", "semantics", "unit"))
+_FIELD_KEYS = frozenset(("name", "logical_type", "semantics", "unit", "space_aggregation", "space_weight"))
 _PLAIN_NUMBER = re.compile(r"[+-]?(\d+(\.\d*)?|\.\d+)([eE][+-]?\d+)?")
 
 
@@ -56,9 +80,40 @@ class ValueField:
     logical_type: str  # "numeric" or "categorical"
     semantics: str  # for example MEASUREMENT, TOTAL, or CATEGORICAL
     unit: str | None = None
+    space_aggregation: str = "none"  # how child cells combine into a parent cell
+    space_weight: str | None = None  # null, "area", or another COUNT or TOTAL column
 
     def as_dict(self) -> dict[str, Any]:
-        return {"name": self.name, "logical_type": self.logical_type, "semantics": self.semantics, "unit": self.unit}
+        return {
+            "name": self.name,
+            "logical_type": self.logical_type,
+            "semantics": self.semantics,
+            "unit": self.unit,
+            "space_aggregation": self.space_aggregation,
+            "space_weight": self.space_weight,
+        }
+
+
+@dataclass(frozen=True)
+class Governance:
+    """Who may see the data and under which licence. The uploader states it; the platform refuses a missing one."""
+
+    license: str
+    share_policy: str
+    title: str | None = None
+    owner: str | None = None
+    source_name: str | None = None
+    refresh: str = "once"
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "title": self.title,
+            "owner": self.owner,
+            "source_name": self.source_name,
+            "license": self.license,
+            "share_policy": self.share_policy,
+            "refresh": self.refresh,
+        }
 
 
 @dataclass(frozen=True)
@@ -83,8 +138,45 @@ class StoredDataset:
         }
 
 
+def _text_or_none(value: Any, label: str) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ImportRejected(f"{label} must be text")
+    stripped = value.strip()
+    return stripped or None
+
+
+def parse_governance(
+    license_text: Any,
+    share_policy: Any,
+    *,
+    title: Any = None,
+    owner: Any = None,
+    source_name: Any = None,
+    refresh: Any = None,
+) -> Governance:
+    """Check the governance fields from the upload. The licence and sharing policy are required."""
+    licence = _text_or_none(license_text, "license")
+    if licence is None:
+        raise ImportRejected("license is required: state the licence or terms of the source data")
+    if share_policy not in SHARE_POLICIES:
+        raise ImportRejected(f"share_policy is required and must be one of {sorted(SHARE_POLICIES)}")
+    rhythm = _text_or_none(refresh, "refresh") or "once"
+    if rhythm not in REFRESH_RATES:
+        raise ImportRejected(f"refresh must be one of {sorted(REFRESH_RATES)}")
+    return Governance(
+        license=licence,
+        share_policy=share_policy,
+        title=_text_or_none(title, "title"),
+        owner=_text_or_none(owner, "owner"),
+        source_name=_text_or_none(source_name, "source_name"),
+        refresh=rhythm,
+    )
+
+
 def parse_value_fields(raw: Sequence[Any]) -> list[ValueField]:
-    """Check the value field list from the upload. Nothing is repaired or guessed."""
+    """Check the value field list from the upload. Nothing is repaired. A missing rollup rule gets its default."""
     if not raw:
         raise ImportRejected("value_fields must list at least one column")
     fields: list[ValueField] = []
@@ -104,10 +196,19 @@ def parse_value_fields(raw: Sequence[Any]) -> list[ValueField]:
         unit = item.get("unit")
         if unit is not None and not isinstance(unit, str):
             raise ImportRejected(f"{where}.unit must be text or null")
+        aggregation = item.get("space_aggregation")
+        weight = item.get("space_weight")
+        if aggregation is None:
+            aggregation, default_weight = DEFAULT_SPACE_AGGREGATION.get(semantics, ("none", None))
+            weight = default_weight if weight is None else weight
+        elif not isinstance(aggregation, str) or not aggregation:
+            raise ImportRejected(f"{where}.space_aggregation must be text")
+        if weight is not None and (not isinstance(weight, str) or not weight):
+            raise ImportRejected(f"{where}.space_weight must be text or null")
         if name in names:
             raise ImportRejected(f"{where}.name {name!r} is listed twice")
         names.add(name)
-        fields.append(ValueField(name, logical, semantics, unit))
+        fields.append(ValueField(name, logical, semantics, unit, aggregation, weight))
     return fields
 
 
@@ -144,18 +245,72 @@ def build_table(columns: Mapping[str, list[str | None]], key_column: str, fields
     return pa.table(arrays)
 
 
+def cell_extent_wgs84(registry: DomainRegistry, gids: Sequence[str]) -> list[float] | None:
+    """Bounding box in WGS84 of the cells, as [min_lon, min_lat, max_lon, max_lat].
+
+    The corners of each cell go through the same explicit operation as the forward index, so the
+    extent matches the GIDs. Returns None when there are no cells.
+    """
+    if not gids:
+        return None
+    profile = registry.get(DOMAIN)
+    grid = GeosquareGrid(profile)
+    transformer = wgs84_to_grid_transformer(profile)
+    xs: list[float] = []
+    ys: list[float] = []
+    for gid in gids:
+        bounds = grid.projected_bounds(gid)
+        xs.extend((bounds.min_x, bounds.max_x, bounds.min_x, bounds.max_x))
+        ys.extend((bounds.min_y, bounds.min_y, bounds.max_y, bounds.max_y))
+    lon, lat = transformer.transform(xs, ys, direction=TransformDirection.INVERSE)
+    return [float(min(lon)), float(min(lat)), float(max(lon)), float(max(lat))]
+
+
+def _column_statistics(table: pa.Table, field: ValueField) -> tuple[float, float | None, float | None]:
+    """Null share, and the smallest and largest value for numeric columns (None otherwise)."""
+    column = table.column(field.name)
+    rows = table.num_rows
+    null_share = column.null_count / rows if rows else 0.0
+    if field.logical_type != "numeric" or column.null_count == rows:
+        return null_share, None, None
+    return null_share, pc.min(column).as_py(), pc.max(column).as_py()
+
+
 def build_manifest(
     registry: DomainRegistry,
     *,
     level: int,
     fields: Sequence[ValueField],
-    row_count: int,
+    table: pa.Table,
+    governance: Governance,
+    extent_bbox: list[float] | None,
     created_at: str,
 ) -> dict[str, Any]:
-    """Manifest for a `cell_values` dataset: one row per cell, GIDs from the file."""
+    """Manifest 1.1 for a `cell_values` dataset: one row per cell, GIDs from the file."""
     profile = registry.get(DOMAIN)
+    value_fields = []
+    for field in fields:
+        null_share, low, high = _column_statistics(table, field)
+        value_fields.append(
+            {
+                "name": field.name,
+                "parquet_type": _PARQUET_TYPES[field.logical_type],
+                "logical_type": field.logical_type,
+                "semantics": field.semantics,
+                "unit": field.unit,
+                "nullable": False,
+                # How the source became the cell value. Nothing is aggregated on a CSV import.
+                "aggregation_rule": None,
+                "space_aggregation": field.space_aggregation,
+                "space_weight": field.space_weight,
+                "null_share": null_share,
+                "min_value": low,
+                "max_value": high,
+            }
+        )
+    row_count = table.num_rows
     return {
-        "manifest_version": "1.0",
+        "manifest_version": MANIFEST_VERSION,
         "dataset_type": "cell_values",
         "grid_system": "geosquare",
         "grid_version": "v2",
@@ -164,18 +319,7 @@ def build_manifest(
         "level": level,
         "profile_version": profile.profile_version,
         "registry_version": REGISTRY_VERSION,
-        "value_fields": [
-            {
-                "name": field.name,
-                "parquet_type": _PARQUET_TYPES[field.logical_type],
-                "logical_type": field.logical_type,
-                "semantics": field.semantics,
-                "unit": field.unit,
-                "nullable": False,
-                "aggregation_rule": "sum" if field.semantics == "COUNT" else None,
-            }
-            for field in fields
-        ],
+        "value_fields": value_fields,
         "identity": {
             "gid_column": "gid",
             "uri_prefix": f"geosquare:v2:{profile.domain_code}:",
@@ -200,6 +344,8 @@ def build_manifest(
             "source_dataset": None,
             "source_row_count": row_count,
         },
+        "extent": {"bbox_wgs84": extent_bbox, "compact_set_path": None},
+        "governance": governance.as_dict(),
         "storage": {
             "parquet_compression": "zstd",
             "geometry_column": None,
@@ -209,6 +355,9 @@ def build_manifest(
             "sorted_by": ["gid"],
             "row_count": row_count,
             "unique_cell_count": row_count,
+            "data_files": [
+                data_file_entry(table, [field.name for field in fields], path="data/part-00000.parquet")
+            ],
         },
         "provenance": {
             "created_at": created_at,
@@ -216,9 +365,23 @@ def build_manifest(
             "generator": "csv_import",
             "aggregation_rule": None,
             "value_semantics": None,
-            "notes": "spec 2.0; one Parquet file; partitioning not used",
+            "notes": "one Parquet file; partitioning not used",
+            "spec_version": SPEC_VERSION,
+            "derived_from": [],
         },
     }
+
+
+def is_stale(created_at: str | None, refresh: str | None, *, now: datetime | None = None) -> bool | None:
+    """True when a dataset is older than its refresh rhythm allows. None when no rhythm is recorded."""
+    if refresh is None:
+        return None
+    limit = STALE_AFTER_DAYS.get(refresh)
+    if limit is None or not created_at:
+        return False
+    created = datetime.strptime(created_at, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+    current = now or datetime.now(timezone.utc)
+    return (current - created).days > limit
 
 
 def store_csv(
@@ -227,6 +390,7 @@ def store_csv(
     data: bytes,
     *,
     value_fields: Sequence[ValueField],
+    governance: Governance,
     confirm_digit_gid: bool = False,
     created_at: str | None = None,
     dataset_id: str | None = None,
@@ -242,7 +406,9 @@ def store_csv(
         registry,
         level=report.level,
         fields=value_fields,
-        row_count=table.num_rows,
+        table=table,
+        governance=governance,
+        extent_bbox=cell_extent_wgs84(registry, table.column("gid").to_pylist()),
         created_at=created_at or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
     )
 

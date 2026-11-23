@@ -6,7 +6,7 @@ from pyproj import Transformer
 
 from geosquare_engine import encode
 from geosquare_platform.app import app
-from geosquare_platform.cellstore import ValueField, store_csv
+from geosquare_platform.cellstore import Governance, ValueField, store_csv
 from geosquare_platform.map_routes import _cell_centre_wgs84
 from geosquare_platform.registry import load_registry
 from geosquare_v2 import GeosquareGrid
@@ -21,7 +21,13 @@ def dataset(tmp_path, monkeypatch):
     root = tmp_path / "cells"
     monkeypatch.setenv("GSQ_PLATFORM_DATA", str(root))
     csv = "gid,share\n" + "\n".join(f"{gid},{index}" for index, gid in enumerate(GIDS, start=1)) + "\n"
-    return store_csv(load_registry(), root, csv.encode(), value_fields=VALUE_FIELDS)
+    return store_csv(
+        load_registry(),
+        root,
+        csv.encode(),
+        value_fields=VALUE_FIELDS,
+        governance=Governance(license="internal-test", share_policy="internal"),
+    )
 
 
 @pytest.fixture

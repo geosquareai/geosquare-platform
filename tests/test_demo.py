@@ -22,7 +22,7 @@ def _small_csv(path: Path) -> Path:
 
 def test_demo_passes_on_a_small_csv(tmp_path, capsys):
     csv_path = _small_csv(tmp_path / "cells.csv")
-    stored = run(csv_path, tmp_path / "cells", numeric=["share"])
+    stored = run(csv_path, tmp_path / "cells", numeric=["share"], license_text="internal-test", share_policy="internal")
 
     assert stored["rows"] == 3 and stored["level"] == 9
     output = capsys.readouterr().out
@@ -33,20 +33,28 @@ def test_demo_passes_on_a_small_csv(tmp_path, capsys):
 
 def test_demo_refuses_a_second_run_of_the_same_file(tmp_path):
     csv_path = _small_csv(tmp_path / "cells.csv")
-    run(csv_path, tmp_path / "cells", numeric=["share"])
+    run(csv_path, tmp_path / "cells", numeric=["share"], license_text="internal-test", share_policy="internal")
     with pytest.raises(DemoFailed, match="409"):
-        run(csv_path, tmp_path / "cells", numeric=["share"])
+        run(csv_path, tmp_path / "cells", numeric=["share"], license_text="internal-test", share_policy="internal")
 
 
 def test_demo_needs_a_value_column(tmp_path):
     csv_path = _small_csv(tmp_path / "cells.csv")
     with pytest.raises(DemoFailed, match="value column"):
-        run(csv_path, tmp_path / "cells")
-    assert main([str(csv_path), "--data-root", str(tmp_path / "cells")]) == 1
+        run(csv_path, tmp_path / "cells", license_text="internal-test", share_policy="internal")
+    assert main(
+        [str(csv_path), "--data-root", str(tmp_path / "cells"), "--license", "internal-test", "--share-policy", "internal"]
+    ) == 1
 
 
 @pytest.mark.skipif("GSQ_KYL_CSV" not in os.environ, reason="set GSQ_KYL_CSV to the KYL cell CSV")
 def test_demo_on_kyl_cells(tmp_path):
-    stored = run(Path(os.environ["GSQ_KYL_CSV"]), tmp_path / "cells", numeric=["share_in_aoi"])
+    stored = run(
+        Path(os.environ["GSQ_KYL_CSV"]),
+        tmp_path / "cells",
+        numeric=["share_in_aoi"],
+        license_text="internal-test",
+        share_policy="internal",
+    )
     assert stored["level"] == 12
     assert stored["rows"] == 50676
