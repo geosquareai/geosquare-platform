@@ -17,6 +17,7 @@ from geosquare_v2.errors import GeosquareError
 
 from geosquare_engine.compact import contains
 
+from .coverage import COVERAGE_DIR, compact_coverage
 from .cellstore import (
     DATASET_ID_PATTERN,
     DatasetExists,
@@ -540,7 +541,7 @@ def _catalog_dataset_paths() -> list[Path]:
     if not root.is_dir():
         return []
     return sorted(
-        (path for path in root.iterdir() if path.is_dir() and path.name != "crosswalks"),
+        (path for path in root.iterdir() if path.is_dir() and path.name not in {"crosswalks", COVERAGE_DIR}),
         key=lambda path: path.name,
     )
 
@@ -628,17 +629,49 @@ def catalog(
         None,
         description="min_lon,min_lat,max_lon,max_lat. Keep datasets whose covered extent touches this box.",
     ),
+    gid: str | None = Query(None, description="Keep datasets whose exact coverage includes this GID."),
 ) -> list[dict[str, Any]]:
     """List dataset metadata without opening parquet data files.
 
-    With bbox, keep only datasets whose extent (manifest 1.1) touches the box. Datasets without an
-    extent, such as manifest 1.0, are left out. This is a box test, not an exact cell test.
+    bbox keeps datasets whose extent (manifest 1.1) touches the box. Datasets without an extent,
+    such as manifest 1.0, are left out. This is a box test.
+
+    gid keeps datasets whose exact coverage (canonical compact cell set) includes the cell, either
+    stored or under a stored ancestor. This is an exact test. The first call per dataset builds
+    its coverage from the data.
     """
     entries = _catalog_entries()
-    if bbox is None:
-        return entries
-    query = _parse_bbox(bbox)
-    return [entry for entry in entries if _touches(entry.get("extent"), query)]
+    if bbox is not None:
+        query = _parse_bbox(bbox)
+        entries = [entry for entry in entries if _touches(entry.get("extent"), query)]
+    if gid is not None:
+        try:
+            gs.decode(gid)
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(status_code=422, detail=f"invalid GID: {exc}") from exc
+        entries = [entry for entry in entries if _covers(entry, gid)]
+    return entries
+
+
+def _covers(entry: Mapping[str, Any], gid: str) -> bool:
+    if "error" in entry:
+        return False
+    try:
+        coverage = frozenset(compact_coverage(data_root(), entry["dataset_id"]))
+    except (OSError, ValueError):
+        return False
+    return contains(coverage, gid)
+
+
+@app.get("/datasets/{dataset_id}/coverage")
+def dataset_coverage(dataset_id: str) -> dict:
+    """Exact coverage of a stored dataset: its canonical compact cell set. Built on first use, then cached."""
+    _dataset_path(dataset_id)
+    try:
+        cells = compact_coverage(data_root(), dataset_id)
+    except (OSError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail=f"cannot read the dataset cells: {exc}") from exc
+    return {"dataset_id": dataset_id, "cells": list(cells)}
 
 
 @app.get("/cells/{gid}/profile")

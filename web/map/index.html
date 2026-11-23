@@ -13,8 +13,12 @@
       label { display: grid; gap: 0.2rem; font-size: 0.8rem; }
       input { min-width: 18rem; padding: 0.35rem; border: 1px solid #aab4c3; border-radius: 0.25rem; }
       button { padding: 0.4rem 0.8rem; border: 0; border-radius: 0.25rem; background: #155eef; color: white; cursor: pointer; }
+      button.link { padding: 0; background: none; color: #155eef; text-decoration: underline; }
       #status { margin-top: 0.5rem; min-height: 1.2rem; font-size: 0.9rem; }
-      #map { height: calc(100vh - 8.5rem); min-height: 24rem; }
+      .badge { background: #fef0c7; color: #93370d; padding: 0 0.3rem; border-radius: 0.2rem; font-size: 0.75rem; }
+      #catalog { display: grid; gap: 0.4rem; margin-top: 0.5rem; }
+      #catalog-list { margin: 0; padding-left: 1.2rem; font-size: 0.85rem; max-height: 10rem; overflow: auto; }
+      #map { height: calc(100vh - 14rem); min-height: 22rem; }
     </style>
     <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
   </head>
@@ -25,12 +29,20 @@
         <label>Bbox <input id="bbox" name="bbox" value="-180,-90,180,90" required></label>
         <button type="submit">Load map</button>
       </form>
-      <div id="status" role="status">Enter a dataset ID to load cells.</div>
+      <form id="catalog-form">
+        <label>GID <input id="gid" name="gid" placeholder="cell, for example 22222232M"></label>
+        <button type="submit">Find datasets covering this cell</button>
+        <button type="button" id="catalog-all">All datasets</button>
+      </form>
+      <ul id="catalog-list" aria-label="Catalog"></ul>
+      <div id="status" role="status">Enter a dataset ID to load cells, or open the catalog.</div>
     </header>
     <main id="map" aria-label="GeoSquare cell map"></main>
     <script type="module">
       const datasetInput = document.querySelector("#dataset");
       const bboxInput = document.querySelector("#bbox");
+      const gidInput = document.querySelector("#gid");
+      const catalogList = document.querySelector("#catalog-list");
       const status = document.querySelector("#status");
       let map;
       let engine;
@@ -59,6 +71,27 @@
         });
         map.addControl(new maplibregl.NavigationControl(), "top-right");
         return map;
+      }
+
+      // Put features on the map under one source name. Creates the source and layers on first use.
+      function putFeatures(name, features, fillPaint, linePaint) {
+        const data = { type: "FeatureCollection", features };
+        const draw = () => {
+          if (map.getSource(name)) {
+            map.getSource(name).setData(data);
+            return;
+          }
+          map.addSource(name, { type: "geojson", data });
+          map.addLayer({ id: `${name}-fill`, type: "fill", source: name, paint: fillPaint });
+          map.addLayer({ id: `${name}-line`, type: "line", source: name, paint: linePaint });
+        };
+        if (map.loaded()) draw(); else map.once("load", draw);
+      }
+
+      function fitToBounds(coordinates) {
+        const bounds = new maplibregl.LngLatBounds();
+        for (const coordinate of coordinates) bounds.extend(coordinate);
+        map.fitBounds(bounds, { padding: 40, maxZoom: 12 });
       }
 
       function renderCells(cells, domainId) {
@@ -90,11 +123,9 @@
             });
           }
           if (features.length) {
-            const bounds = new maplibregl.LngLatBounds();
-            for (const feature of features) {
-              for (const coordinate of feature.geometry.coordinates[0]) bounds.extend(coordinate);
-            }
-            map.fitBounds(bounds, { padding: 40, maxZoom: 12 });
+            const coordinates = [];
+            for (const feature of features) coordinates.push(...feature.geometry.coordinates[0]);
+            fitToBounds(coordinates);
           }
         };
         if (map.loaded()) draw(); else map.once("load", draw);
@@ -117,6 +148,95 @@
         setStatus(`cell count: ${payload.cells.length} · domain: ${manifest.domain_code} · level: ${manifest.level}`);
       }
 
+      // Exact coverage of one dataset: its compact cells, drawn on the map.
+      async function showCoverage(datasetId) {
+        setStatus("Loading coverage...");
+        const encoded = encodeURIComponent(datasetId);
+        const [metadataResponse, coverageResponse] = await Promise.all([
+          fetch(`/datasets/${encoded}`),
+          fetch(`/datasets/${encoded}/coverage`),
+        ]);
+        if (!metadataResponse.ok) throw new Error(`Dataset metadata request failed (${metadataResponse.status})`);
+        if (!coverageResponse.ok) throw new Error(`Coverage request failed (${coverageResponse.status})`);
+        const manifest = (await metadataResponse.json()).manifest;
+        const { cells } = await coverageResponse.json();
+        await loadEngine();
+        ensureMap();
+        const features = cells.map((gid) => ({
+          type: "Feature",
+          properties: {},
+          geometry: { type: "Polygon", coordinates: [engine.cellPolygonWgs84(manifest.domain_id, gid, 25000, false)] },
+        }));
+        putFeatures(
+          "coverage",
+          features,
+          { "fill-color": "#12b76a", "fill-opacity": 0.3 },
+          { "line-color": "#067647", "line-width": 1 },
+        );
+        const box = manifest.extent && manifest.extent.bbox_wgs84;
+        if (box) {
+          const [west, south, east, north] = box;
+          fitToBounds([[west, south], [east, south], [east, north], [west, north]]);
+        }
+        setStatus(`${datasetId}: ${cells.length} coverage cell(s) · domain: ${manifest.domain_code} · level: ${manifest.level}`);
+      }
+
+      // Catalog list and extents. The stale badge comes from the catalog entry.
+      function renderCatalog(entries) {
+        const items = entries.map((entry) => {
+          const item = document.createElement("li");
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = "link";
+          button.textContent = entry.dataset_id;
+          button.addEventListener("click", () => {
+            showCoverage(entry.dataset_id).catch((error) => setStatus(`Map failed: ${error.message}`));
+          });
+          const governance = entry.governance || {};
+          const detail = document.createElement("span");
+          detail.textContent = ` ${entry.row_count ?? "?"} rows · share: ${governance.share_policy ?? "not stated"} · refresh: ${governance.refresh ?? "not stated"}`;
+          item.append(button, detail);
+          if (entry.stale) {
+            const badge = document.createElement("span");
+            badge.className = "badge";
+            badge.textContent = "basi";
+            badge.title = "Older than its refresh rhythm";
+            item.append(" ", badge);
+          }
+          return item;
+        });
+        catalogList.replaceChildren(...items);
+      }
+
+      async function loadCatalog(gid) {
+        const url = gid ? `/catalog?gid=${encodeURIComponent(gid)}` : "/catalog";
+        const response = await fetch(url);
+        if (!response.ok) throw new Error(`Catalog request failed (${response.status})`);
+        const entries = await response.json();
+        ensureMap();
+        const extents = entries
+          .filter((entry) => entry.extent && entry.extent.bbox_wgs84)
+          .map((entry) => {
+            const [west, south, east, north] = entry.extent.bbox_wgs84;
+            return {
+              type: "Feature",
+              properties: { stale: Boolean(entry.stale) },
+              geometry: {
+                type: "Polygon",
+                coordinates: [[[west, south], [east, south], [east, north], [west, north], [west, south]]],
+              },
+            };
+          });
+        putFeatures(
+          "extents",
+          extents,
+          { "fill-color": "#155eef", "fill-opacity": 0.08 },
+          { "line-color": ["case", ["get", "stale"], "#c2410c", "#155eef"], "line-width": 2 },
+        );
+        renderCatalog(entries);
+        setStatus(gid ? `${entries.length} dataset(s) cover GID ${gid}` : `${entries.length} dataset(s) in the catalog`);
+      }
+
       document.querySelector("#controls").addEventListener("submit", async (event) => {
         event.preventDefault();
         try {
@@ -125,6 +245,21 @@
           console.error(error);
           setStatus(`Map failed: ${error.message}`);
         }
+      });
+
+      document.querySelector("#catalog-form").addEventListener("submit", async (event) => {
+        event.preventDefault();
+        try {
+          await loadCatalog(gidInput.value.trim());
+        } catch (error) {
+          console.error(error);
+          setStatus(`Catalog failed: ${error.message}`);
+        }
+      });
+
+      document.querySelector("#catalog-all").addEventListener("click", () => {
+        gidInput.value = "";
+        loadCatalog("").catch((error) => setStatus(`Catalog failed: ${error.message}`));
       });
 
       const params = new URLSearchParams(window.location.search);
