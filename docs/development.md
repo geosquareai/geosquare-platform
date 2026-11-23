@@ -1,0 +1,68 @@
+# Pengembangan
+
+Halaman ini untuk orang yang mengubah kode platform.
+
+## Setup
+
+```zsh
+uv sync --extra test
+```
+
+Perintah ini membaca `uv.lock`. Versi yang terkunci sama dengan yang diuji.
+
+## Pin versi
+
+| Paket | Versi | Alasan |
+|---|---|---|
+| `geosquare-engine` | `>=0.2.0,<0.3` | Fungsi compact set ada sejak 0.2.0 |
+| `geosquare-v2[table,registry,geo]` | `==1.2.0` | `time_store` dan `compact_store` ada sejak 1.2.0 |
+| `geosquare-grid` | `==1.1.1` (hanya extra `test`) | Tes paritas V1. Ini lisensi GPL, jadi tidak ikut di runtime |
+
+Saat pin berubah, jalankan `uv lock --upgrade-package <paket>`, lalu tes penuh.
+
+## Tes
+
+```zsh
+uv run pytest -q
+```
+
+Dua file membutuhkan `geosquare-grid` dari extra `test`:
+
+- `tests/test_v1_parity.py`
+- `tests/test_migrate_v1.py`
+
+Jika paket itu tidak terpasang, dua file ini gagal saat dikumpulkan. Jalankan tes lain dengan:
+
+```zsh
+uv run pytest -q --ignore=tests/test_v1_parity.py --ignore=tests/test_migrate_v1.py
+```
+
+Tes memakai data sintetis. Jangan commit data asli. Folder `data/` ada di `.gitignore`.
+
+## Aturan kode
+
+- Jangan tulis ulang aturan grid di sini. Panggil `geosquare-engine`.
+- Jangan tulis ulang aturan dataset di sini. Panggil `geosquare-v2`.
+- Input salah harus gagal dengan pesan yang jelas. Jangan memperbaiki diam-diam.
+- Hasil yang berisi nilai per sel hanya boleh lewat rute internal.
+- Jika tes memakai versi paket, baca versi dari paket yang terpasang. Jangan tulis angka tetap.
+
+## Menjalankan server lokal
+
+```zsh
+GSQ_PLATFORM_DATA=data/cells uv run uvicorn geosquare_platform.app:app --reload
+```
+
+Untuk mencoba rute internal di mesin sendiri:
+
+```zsh
+GSQ_INTERNAL_ROUTES=1 GSQ_PLATFORM_DATA=data/cells uv run uvicorn geosquare_platform.app:app --reload
+```
+
+Jangan jalankan server dengan flag ini di jaringan yang bisa diakses publik.
+
+## Kontribusi
+
+- Buat cabang dari `main`. Jangan kerja langsung di `main`.
+- Buka pull request. Tunggu review sebelum merge.
+- Update dokumen di folder `docs/` jika perilaku berubah.
