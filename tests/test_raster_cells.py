@@ -87,3 +87,23 @@ def test_missing_extension_is_refused(raster, tmp_path, monkeypatch):
     path, _ = raster
     with pytest.raises(ImportRejected, match="GSQ_DUCKDB_EXTENSION"):
         raster_to_cells(tmp_path / "cells", path, level=LEVEL, bbox=BBOX, value_field=FLOOD, governance=GOVERNANCE)
+
+
+@pytest.mark.skipif(not EXTENSION, reason="set GSQ_DUCKDB_EXTENSION to the built engine extension")
+def test_projected_raster_error_is_one_line_without_sql(tmp_path):
+    rasterio = pytest.importorskip("rasterio")
+    from rasterio.transform import from_origin
+
+    path = tmp_path / "utm.tif"
+    data = np.ones((256, 256), dtype="float32")
+    with rasterio.open(
+        path, "w", driver="GTiff", height=256, width=256, count=1, dtype="float32",
+        crs="EPSG:32748", transform=from_origin(500000, 9000000, 30, 30), tiled=True, blockxsize=256, blockysize=256,
+    ) as dst:
+        dst.write(data, 1)
+    with pytest.raises(ImportRejected) as caught:
+        raster_to_cells(tmp_path / "cells", path, level=LEVEL, bbox=BBOX, value_field=FLOOD,
+                        governance=GOVERNANCE, extension=EXTENSION)
+    message = str(caught.value)
+    assert message.startswith("raster could not be read: ")
+    assert "\n" not in message and "LINE 1" not in message

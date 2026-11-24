@@ -45,7 +45,7 @@ def pixel_cells(raster: Path, *, level: int, bbox: Sequence[float], extension: s
             [str(raster), min_lon, min_lat, max_lon, max_lat],
         ).fetchall()
     except duckdb.Error as exc:
-        raise ImportRejected(f"raster could not be read: {exc}") from exc
+        raise ImportRejected(f"raster could not be read: {str(exc).splitlines()[0]}") from exc
     finally:
         con.close()
     return [(gid, float(value)) for gid, value in rows]
