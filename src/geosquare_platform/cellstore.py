@@ -41,7 +41,8 @@ SPEC_VERSION = "2.0"
 DATASET_ID_PATTERN = re.compile(r"ID-L(\d{1,2})-[0-9a-f]{12}")
 NAMED_DIR = "named"  # versioned datasets: <data root>/named/<name>/v<N>
 NAME_PATTERN = re.compile(r"[a-z0-9][a-z0-9_-]{0,63}")
-_VERSION_FOLDER = re.compile(r"v(\d+)")
+_VERSION_FOLDER = re.compile(r"v([1-9]\d*)")
+_VERSION_TRIES = 5
 SHARE_POLICIES = frozenset(("internal", "k_anon_only", "public"))
 REFRESH_RATES = frozenset(("once", "daily", "weekly", "monthly", "yearly", "irregular"))
 # Default rollup rule per semantics (docs/dataset-metadata.md, section 4). The uploader can change it.
@@ -430,7 +431,6 @@ def store_csv(
         if not NAME_PATTERN.fullmatch(name):
             raise ImportRejected("name must be 1 to 64 characters: a-z, 0-9, _ or -, starting with a letter or digit")
         dataset_id = name
-        destination, new_version = _next_version(root, name, manifest["storage"]["data_files"][0]["content_sha256"])
     else:
         # The id comes from the content, the value field list, and the level unless a
         # caller supplies a validated id for an explicit derived dataset.
@@ -448,8 +448,13 @@ def store_csv(
 
     # from_table validates the table and the manifest against the registry. write() is atomic.
     dataset = CellDataset.from_table(table, manifest, registry=registry)
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    dataset.write(destination)
+    if name is not None:
+        destination, new_version = _write_next_version(
+            root, name, dataset, manifest["storage"]["data_files"][0]["content_sha256"]
+        )
+    else:
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        dataset.write(destination)
     dropped = tuple(name for name in columns if name != report.key_column and name not in {f.name for f in value_fields})
     return StoredDataset(
         dataset_id=dataset_id,
@@ -484,6 +489,26 @@ def _next_version(root: Path, name: str, content_hash: str) -> tuple[Path, int]:
             raise DatasetExists(f"{name} version {number} already has this content")
     number = versions[-1][0] + 1 if versions else 1
     return Path(root) / NAMED_DIR / name / f"v{number}", number
+
+
+def _write_next_version(root: Path, name: str, dataset: CellDataset, content_hash: str) -> tuple[Path, int]:
+    """Write `dataset` as the next version of `name`.
+
+    Two uploads can pick the same number. The second write then finds the folder taken and
+    fails, so it picks the next number and tries again. After `_VERSION_TRIES` losses it gives up.
+    """
+    for _ in range(_VERSION_TRIES):
+        destination, number = _next_version(root, name, content_hash)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            dataset.write(destination)
+        except Exception:
+            # write() raises when the folder was taken during the race. Any other failure is re-raised.
+            if destination.exists():
+                continue
+            raise
+        return destination, number
+    raise DatasetExists(f"{name} has too many concurrent uploads; try again")
 
 
 def read_dataset(registry: DomainRegistry, path: Path) -> dict[str, Any]:

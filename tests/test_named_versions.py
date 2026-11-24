@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+import os
+import shutil
+import threading
+from pathlib import Path
+
 import geosquare_engine as gs
 import pytest
 from fastapi.testclient import TestClient
@@ -88,6 +93,60 @@ def test_legacy_dataset_without_a_name_still_loads(client):
     assert upload(client, V1, name=None).status_code == 409
 
 
-def test_catalog_ignores_the_named_folder(client):
+def test_catalog_lists_latest_named_version_and_legacy(client):
+    legacy = upload(client, V1, name=None).json()["dataset_id"]
     assert upload(client, V1).status_code == 201
-    assert client.get("/catalog").status_code == 200
+    assert upload(client, V2).status_code == 201
+
+    rows = client.get("/catalog").json()
+    named = [row for row in rows if row.get("name") == "kyl-share"]
+    assert len(named) == 1
+    assert named[0]["dataset_id"] == "kyl-share" and named[0]["version"] == 2
+    assert named[0]["row_count"] == 3
+    assert [row["dataset_id"] for row in rows if "name" not in row] == [legacy]
+
+    gid_only_in_v2 = gs.encode(9, 13, 3)
+    found = client.get("/catalog", params={"gid": gid_only_in_v2}).json()
+    assert [row["name"] for row in found] == ["kyl-share"]
+    assert client.get(f"/datasets/{legacy}").status_code == 200
+
+
+def test_catalog_skips_non_canonical_version_folders(client):
+    assert upload(client, V1).status_code == 201
+    folder = client.get("/named/kyl-share").json()
+    version_folder = Path(os.environ["GSQ_PLATFORM_DATA"]) / "named" / "kyl-share"
+    for odd in ("v0", "v01"):
+        shutil.copytree(version_folder / "v1", version_folder / odd)
+
+    listing = client.get("/named/kyl-share/versions").json()
+    assert [item["version"] for item in listing["versions"]] == [1]
+    assert folder["version"] == 1
+
+
+def test_concurrent_uploads_to_one_name_get_201_or_409_and_no_overwrite(client):
+    threads_count = 6
+    barrier = threading.Barrier(threads_count)
+    statuses: list[int] = []
+    created: list[int] = []
+
+    def worker(index: int) -> None:
+        thread_client = TestClient(app, raise_server_exceptions=False)
+        data = csv([(gs.encode(9, 10, 3), f"0.{index + 1}", "A"), (gs.encode(9, 11, 3), "1", "B")])
+        barrier.wait()
+        response = upload(thread_client, data)
+        statuses.append(response.status_code)
+        if response.status_code == 201:
+            created.append(response.json()["version"])
+
+    threads = [threading.Thread(target=worker, args=(i,)) for i in range(threads_count)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert set(statuses) <= {201, 409}, statuses
+    assert len(created) == statuses.count(201) >= 1
+    assert len(set(created)) == len(created)
+    listing = client.get("/named/kyl-share/versions").json()
+    assert sorted(item["version"] for item in listing["versions"]) == sorted(created)
+    assert len({item["content_sha256"] for item in listing["versions"]}) == len(created)

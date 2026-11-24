@@ -595,14 +595,25 @@ def time_join(payload: dict = Body(...)) -> dict:
 
 # Catalog and cell-profile routes intentionally read only the manifest until a profile
 # query needs row values. Grid identity and hierarchy stay in geosquare-engine.
-def _catalog_dataset_paths() -> list[Path]:
+def _catalog_sources() -> list[tuple[Path, str, int | None]]:
+    """(folder, dataset_id, version) for each catalog row. A named dataset lists its latest version only."""
     root = data_root()
     if not root.is_dir():
         return []
-    return sorted(
-        (path for path in root.iterdir() if path.is_dir() and path.name not in {"crosswalks", COVERAGE_DIR, NAMED_DIR}),
-        key=lambda path: path.name,
-    )
+    sources: list[tuple[Path, str, int | None]] = [
+        (path, path.name, None)
+        for path in sorted(root.iterdir())
+        if path.is_dir() and path.name not in {"crosswalks", COVERAGE_DIR, NAMED_DIR}
+    ]
+    named = root / NAMED_DIR
+    if named.is_dir():
+        for folder in sorted(named.iterdir()):
+            if folder.is_dir() and NAME_PATTERN.fullmatch(folder.name):
+                versions = list_versions(root, folder.name)
+                if versions:
+                    number, path = versions[-1]
+                    sources.append((path, folder.name, number))
+    return sources
 
 
 def _read_catalog_manifest(path: Path) -> dict[str, Any]:
@@ -634,7 +645,7 @@ def _refresh_of(manifest: Mapping[str, Any]) -> str | None:
     return refresh if isinstance(refresh, str) else None
 
 
-def _catalog_entry(path: Path) -> dict[str, Any]:
+def _catalog_entry(path: Path, dataset_id: str) -> dict[str, Any]:
     try:
         manifest = _read_catalog_manifest(path)
         storage = manifest.get("storage", {})
@@ -645,7 +656,7 @@ def _catalog_entry(path: Path) -> dict[str, Any]:
         if not isinstance(value_fields, list) or not all(isinstance(field, Mapping) for field in value_fields):
             raise ValueError("manifest value_fields must be a list of objects")
         return {
-            "dataset_id": path.name,
+            "dataset_id": dataset_id,
             "domain_code": manifest.get("domain_code"),
             "level": manifest.get("level"),
             "dataset_type": manifest.get("dataset_type"),
@@ -669,11 +680,24 @@ def _catalog_entry(path: Path) -> dict[str, Any]:
             ],
         }
     except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
-        return {"dataset_id": path.name, "error": f"cannot read manifest: {exc}"}
+        return {"dataset_id": dataset_id, "error": f"cannot read manifest: {exc}"}
 
 
 def _catalog_entries() -> list[dict[str, Any]]:
-    return [_catalog_entry(path) for path in _catalog_dataset_paths()]
+    entries = []
+    for path, dataset_id, version in _catalog_sources():
+        entry = _catalog_entry(path, dataset_id)
+        if version is not None:
+            entry = {**entry, "name": dataset_id, "version": version}
+        entries.append(entry)
+    return entries
+
+
+def _catalog_key(entry: Mapping[str, Any]) -> str:
+    """The entry's folder under the data root, the path its coverage is read from."""
+    if "version" in entry:
+        return f"{NAMED_DIR}/{entry['name']}/v{entry['version']}"
+    return str(entry["dataset_id"])
 
 
 def _profile_values(row: dict[str, Any] | None, value_fields: list[dict[str, Any]]) -> dict[str, Any]:
@@ -716,7 +740,7 @@ def _covers(entry: Mapping[str, Any], gid: str) -> bool:
     if "error" in entry:
         return False
     try:
-        coverage = frozenset(compact_coverage(data_root(), entry["dataset_id"]))
+        coverage = frozenset(compact_coverage(data_root(), _catalog_key(entry)))
     except (OSError, ValueError):
         return False
     return contains(coverage, gid)
@@ -748,6 +772,10 @@ def cell_profile(gid: str) -> dict[str, Any]:
         dataset_id = entry["dataset_id"]
         if "error" in entry:
             skipped.append({"dataset_id": dataset_id, "reason": entry["error"]})
+            continue
+        if "version" in entry:
+            # shortcut: the profile reads legacy dataset IDs only, upgrade when a profile needs named versions.
+            skipped.append({"dataset_id": dataset_id, "reason": "named dataset versions are not in profiles yet"})
             continue
         if entry["domain_code"] != "ID":
             skipped.append(
