@@ -1,6 +1,6 @@
-# Pengembangan
+# Development
 
-Halaman ini untuk orang yang mengubah kode platform.
+This page is for people who change the platform code.
 
 ## Setup
 
@@ -8,104 +8,85 @@ Halaman ini untuk orang yang mengubah kode platform.
 uv sync --extra test
 ```
 
-Perintah ini membaca `uv.lock`. Versi yang terkunci sama dengan yang diuji.
+This command reads `uv.lock`. The locked versions are the ones the tests run against.
 
-## Pin versi
+## Version pins
 
-| Paket | Versi | Alasan |
+These pins match `pyproject.toml`.
+
+| Package | Version | Why |
 |---|---|---|
-| `geosquare-engine` | `>=0.3.0,<0.4` | Rilis PyPI 0.3.0 (ada `df.gsq`). Extra `notebook` memakai pin yang sama. |
-| `geosquare-v2[table,registry,geo]` | `==1.2.0` | `time_store` dan `compact_store` ada sejak 1.2.0 |
-| `geosquare-grid` | `==1.1.1` (hanya extra `test`) | Tes paritas V1. Ini lisensi GPL, jadi tidak ikut di runtime |
+| `geosquare-engine` | `>=0.3.0,<0.4` | Current PyPI release. The starter notebook and the `df.gsq` accessors use it |
+| `geosquare-v2[table,registry,geo]` | `==1.3.0` | Exact version. `time_store` and `compact_store` exist since 1.2.0 |
+| `geosquare-grid` | `==1.1.1` (test extra only) | V1 parity tests. This package is GPL, so it is not in the runtime |
 
-Saat pin berubah, jalankan `uv lock --upgrade-package <paket>`, lalu tes penuh.
+When a pin changes, run `uv lock --upgrade-package <package>`, then run the full test suite.
 
-## Tes
+## Tests
 
 ```zsh
 uv run pytest -q
 ```
 
-Dua file membutuhkan `geosquare-grid` dari extra `test`:
+Two files need `geosquare-grid` from the test extra:
 
 - `tests/test_v1_parity.py`
 - `tests/test_migrate_v1.py`
 
-Jika paket itu tidak terpasang, dua file ini gagal saat dikumpulkan. Jalankan tes lain dengan:
+If that package is not installed, these two files fail at collection. To run the other tests:
 
 ```zsh
 uv run pytest -q --ignore=tests/test_v1_parity.py --ignore=tests/test_migrate_v1.py
 ```
 
-Tes memakai data sintetis. Jangan commit data asli. Folder `data/` ada di `.gitignore`.
+Tests use synthetic data. Do not commit real data. The `data/` folder is in `.gitignore`.
 
-## Aturan kode
+## Code rules
 
-- Jangan tulis ulang aturan grid di sini. Panggil `geosquare-engine`.
-- Jangan tulis ulang aturan dataset di sini. Panggil `geosquare-v2`.
-- Input salah harus gagal dengan pesan yang jelas. Jangan memperbaiki diam-diam.
-- Hasil yang berisi nilai per sel hanya boleh lewat rute internal.
-- Jika tes memakai versi paket, baca versi dari paket yang terpasang. Jangan tulis angka tetap.
+- Do not rewrite grid rules here. Call `geosquare-engine`.
+- Do not rewrite dataset rules here. Call `geosquare-v2`.
+- Invalid input must fail with a clear message. Do not fix it silently.
+- Results that contain per-cell values may only go through internal routes.
+- If a test uses a package version, read the version from the installed package. Do not write a fixed number.
 
-## Menjalankan server lokal
+## Run the server locally
 
 ```zsh
 GSQ_PLATFORM_DATA=data/cells uv run uvicorn geosquare_platform.app:app --reload
 ```
 
-Untuk mencoba rute internal di mesin sendiri:
+To try the internal routes on your own machine:
 
 ```zsh
 GSQ_INTERNAL_ROUTES=1 GSQ_PLATFORM_DATA=data/cells uv run uvicorn geosquare_platform.app:app --reload
 ```
 
-Jangan jalankan server dengan flag ini di jaringan yang bisa diakses publik.
+The browser map at `/map` reads the Parquet file through an internal route. Without `GSQ_INTERNAL_ROUTES=1`, the map cannot load the data.
 
-## Kontribusi
+Do not run the server with this flag on a network that the public can reach.
 
-- Buat cabang dari `main`. Jangan kerja langsung di `main`.
-- Buka pull request. Tunggu review sebelum merge.
-- Update dokumen di folder `docs/` jika perilaku berubah.
+## Contributing
 
-## Peta di browser (WASM)
+- Branch from `main`. Do not work directly on `main`.
+- Open a pull request. Wait for review before merging.
+- Update the pages in `docs/` when behaviour changes.
 
-Peta di `/map` membaca file Parquet langsung di browser, lalu melipatnya ke level sesuai zoom (E19).
+## Browser map (WASM)
 
-Paket WASM dari `geosquare-engine` belum ada di npm. Salin hasil build lokal ke `web/map/pkg/` (folder ini tidak di-commit):
+The map at `/map` reads Parquet files directly in the browser, then rolls them up to the level for the zoom (E19).
+
+The WASM package from `geosquare-engine` is not on npm yet. Copy the local build into `web/map/pkg/`. This folder is not committed:
 
 ```zsh
 cp -R ../geosquare-engine/bindings/wasm/pkg web/map/pkg
 ```
 
-`web/map/js/rollup.mjs` adalah salinan dari `geosquare-engine/bindings/wasm/js/rollup.mjs`. Jaga agar tetap sama dengan engine.
+`web/map/js/rollup.mjs` is a copy of `geosquare-engine/bindings/wasm/js/rollup.mjs`. Keep it the same as the engine file.
 
-Rute `GET /datasets/{id}/parquet` hanya aktif dengan `GSQ_INTERNAL_ROUTES=1`, karena file-nya berisi nilai per sel. Tanpa flag itu, peta memakai rute `/cells`.
+The map page loads maplibre and hyparquet from CDNs, so the browser needs internet access.
 
-## Raster ke sel (L14)
+---
 
-`raster_to_cells` di `src/geosquare_platform/raster.py` membaca GeoTIFF atau COG dengan `read_raster` dari engine. Nilai tiap sel adalah rata-rata piksel yang titik tengahnya ada di dalam bbox.
+## Ringkasan Bahasa Indonesia
 
-Fungsi ini butuh extension DuckDB dari engine (belum ada di PyPI). Build dulu di `geosquare-engine/bindings/duckdb`, lalu:
-
-```zsh
-export GSQ_DUCKDB_EXTENSION=/path/to/geosquare_v2.duckdb_extension
-uv sync --extra test
-uv run --extra test pytest -q tests/test_raster_cells.py
-```
-
-Tanpa `GSQ_DUCKDB_EXTENSION`, fungsi menolak dengan pesan yang jelas. Tes referensi akan dilewati.
-
-**Versi engine yang wajib:** extension harus dibuild dari commit engine `7e6da90` atau lebih baru (branch `feat/phase5-engine-bundle`, PR #41 belum di-merge ke `main`). Commit itu memperbaiki `read_raster` agar hanya mengembalikan piksel yang titik tengahnya di dalam bbox. Extension dari `main` akan memberi piksel di luar bbox di tepi, sehingga sel tepi salah. Extension harus untuk DuckDB 1.5.0.
-
-Sengaja tidak ada rute HTTP. Input-nya path file di server, jadi rute seperti itu bisa membaca file sembarang.
-
-## Notebook starter (L19)
-
-`notebooks/starter.ipynb` memuat dataset contoh di `notebooks/sample/`, dirollup dengan `df.gsq`, menggambar peta, lalu mengekspor CSV. Jalankan dari folder `notebooks` dengan membuka notebook dan menjalankan semua sel dari atas ke bawah:
-
-```zsh
-uv sync --extra test --extra notebook
-cd notebooks
-```
-
-Notebook ini butuh `df.gsq` dari engine (main setelah PR #39). Rilis PyPI 0.2.0 belum punya fitur ini.
+Halaman ini untuk pengembang. Setup dengan `uv sync --extra test`. Tes dengan `uv run pytest -q`. Dua file tes butuh `geosquare-grid` dari extra `test`. Peta di `/map` butuh paket WASM di `web/map/pkg/` dan `GSQ_INTERNAL_ROUTES=1` di mesin lokal. Jangan pernah menjalankan server dengan flag itu di jaringan publik.

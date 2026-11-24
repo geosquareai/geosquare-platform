@@ -1,48 +1,66 @@
-# Privasi dan rute internal
+# Privacy and internal routes
 
-Dokumen ini menjelaskan dua hal: cara export menjaga anonimitas, dan rute mana yang hanya boleh dipakai di dalam tim.
+This page covers two things. It explains how export protects anonymity. It also lists which routes are for internal team use only.
 
-## Export k-anonymity
+## K-anonymity export
 
-Export hanya menerbitkan hitungan yang sudah digabung. Setiap sel hasil punya nilai `count` minimal `k`.
+Export publishes only grouped counts. Every cell in the result has a `count` of at least `k`.
 
-Cara kerja (lihat `src/geosquare_platform/export.py`):
+How it works (see `src/geosquare_platform/export.py`):
 
-1. Ambil setiap sel. Hitungan kolom COUNT adalah angka anonimitas.
-2. Sel dengan hitungan minimal `k` langsung keluar.
-3. Sel dengan hitungan di bawah `k` digabung ke induknya. Penggabungan diulang sampai hitungan mencapai `k`.
-4. Di level paling kasar, sisa sel yang masih di bawah `k` tidak dikeluarkan. Jumlahnya dicatat di `suppressed_cell_count` dan `suppressed_count`.
-5. Kolom TOTAL dijumlahkan ikut induknya. Kolom lain dibuang dan dicatat di `dropped_fields`.
-6. Platform memeriksa bahwa jumlah keluaran plus jumlah yang ditekan sama dengan jumlah masukan. Jika pemeriksaan ini gagal, server tidak mengirim hasil export.
+1. Read each cell. The COUNT column value is the anonymity number.
+2. A cell with a count of at least `k` is output as is.
+3. A cell with a count below `k` is merged into its parent. The merge repeats until the count reaches `k`.
+4. At the coarsest level, cells that are still below `k` are not output. Their number is recorded in `suppressed_cell_count` and `suppressed_count`.
+5. TOTAL columns are summed up with their parent. Other columns are dropped and listed in `dropped_fields`.
+6. The platform checks that the number of output rows plus the number of suppressed rows equals the number of input rows. If this check fails, the server does not send the result.
 
-Aturan `k`:
+Rules for `k`:
 
-- Default 5.
-- Minimal 2. Nilai di bawah 2 ditolak.
-- Keputusan tim: setting default 5 dan minimal 2 diterima. Tidak ada aturan hukum Indonesia yang bisa dijadikan rujukan untuk nilai ini.
+- Default: 5.
+- Minimum: 2. A value below 2 is rejected.
+- Team decision: the default of 5 and the minimum of 2 are accepted. No Indonesian legal rule is available as a reference for this value.
 
-## Rute internal
+## Internal routes
 
-Rute ini mengembalikan nilai per sel atau jumlah per induk dari data sumber:
+These routes return per-cell values or per-parent totals from the source data:
 
-| Rute | Mengembalikan |
+| Route | Returns |
 |---|---|
-| `GET /datasets/{id}/rollup` | Jumlah per induk. Dengan level sama dengan dataset, nilai per sel asli |
-| `POST /query/join` | Jumlah gabungan beberapa dataset |
-| `POST /query/compact-join` | Jumlah di sel yang tercakup compact set |
-| `POST /query/time-join` | Jumlah baris kiri yang cocok dengan baris kanan |
+| `GET /datasets/{id}/rollup` | Totals per parent. With a level equal to the dataset level, the original per-cell values |
+| `GET /datasets/{id}/parquet` | The full Parquet file of one dataset |
+| `POST /query/join` | Combined totals of several datasets |
+| `POST /query/compact-join` | Totals in the cells that a compact set covers |
+| `POST /query/time-join` | Totals of left rows that match right rows |
 
-Semua rute ini menjawab 404 kecuali `GSQ_INTERNAL_ROUTES=1`.
+All of these routes answer 404 unless `GSQ_INTERNAL_ROUTES=1`.
 
-Catatan penting:
+Important notes:
 
-- Gerbang ini hanya memeriksa variabel lingkungan. Ini bukan login, dan tidak ada pemeriksaan pengguna.
-- Server yang memasang `GSQ_INTERNAL_ROUTES=1` harus tetap privat, misalnya di jaringan internal atau di belakang proxy dengan autentikasi.
-- Export publik tetap lewat k-anonymity. Rute internal tidak.
+- The gate only checks an environment variable. It is not a login, and there is no user check.
+- A server that sets `GSQ_INTERNAL_ROUTES=1` must stay private. For example, run it on an internal network or behind a proxy with authentication.
+- Public export still goes through k-anonymity. Internal routes do not.
 
-## Risiko
+## Public routes that are not gated
 
-- Dengan k = 2, satu orang di sel kecil bisa membuka nilai orang lain jika kolom total juga keluar. Jaga agar keluaran tetap internal.
-- Query berulang bisa mempersempit sel. Batasi query atau terbitkan rilis tetap.
-- Data mobile dan data demografi 50 m adalah aset tim. Jangan keluarkan data itu lewat export atau rute publik.
-- Data Dukcapil belum punya lisensi publik. Jangan pakai di produk berbayar sebelum ada izin tertulis.
+These routes return values per cell. They are public, and `GSQ_INTERNAL_ROUTES` does not affect them:
+
+| Route | Returns | Note |
+|---|---|---|
+| `GET /datasets/{id}/cells` | Cell values inside a box, up to `limit` (default 1000) | Does not check `share_policy` |
+| `GET /cells/{gid}/profile` | Values of one cell and its parent | Does not check `share_policy` |
+
+A dataset with `share_policy` set to `internal` can still be read through these routes. Until the code checks `share_policy` on these routes, do not expose a server that holds internal datasets.
+
+## Risks
+
+- With k = 2, one person in a small cell can be identified if a total column is also exported. Keep the output internal.
+- Repeated queries can narrow down a cell. Limit queries, or publish fixed releases.
+- Mobile data and 50 m demographic data are team assets. Do not release them through export or public routes.
+- Dukcapil data has no public license yet. Do not use it in a paid product until written permission exists.
+
+---
+
+## Ringkasan Bahasa Indonesia
+
+Export publik memakai k-anonymity: setiap sel hasil punya hitungan minimal `k` (default 5, minimal 2). Sel di bawah `k` digabung ke induknya, lalu sisanya ditekan dan dicatat. Rute internal (rollup, parquet, join) hanya aktif dengan `GSQ_INTERNAL_ROUTES=1`. Rute publik `/datasets/{id}/cells` dan `/cells/{gid}/profile` mengembalikan nilai per sel dan belum memeriksa `share_policy`, jadi server dengan data internal jangan dibuka ke publik.

@@ -1,212 +1,219 @@
 # API
 
-Semua contoh memakai `http://127.0.0.1:8000`. Upload memakai `multipart/form-data`. Query memakai JSON atau query string sesuai tabel.
+All examples use `http://127.0.0.1:8000`. Uploads use `multipart/form-data`. Queries use JSON or query strings, as the tables show.
 
-Kode error yang sering muncul:
+Common error codes:
 
-| Kode | Arti |
+| Code | Meaning |
 |---|---|
-| 201 | Dibuat |
-| 404 | Tidak ada. Untuk rute internal, 404 berarti rute tidak aktif |
-| 409 | Dataset dengan isi yang sama sudah ada |
-| 422 | Input tidak valid. Pesan menjelaskan kenapa |
+| 201 | Created |
+| 404 | Not found. For an internal route, 404 means the route is off |
+| 409 | A dataset with the same content already exists |
+| 422 | Input is not valid. The message says why |
 
-## Ringkasan
+## Summary
 
-| Metode | Path | Akses | Fungsi |
+| Method | Path | Access | What it does |
 |---|---|---|---|
-| GET | `/health` | publik | Cek server hidup |
-| POST | `/import/analyse` | publik | Cek CSV, tanpa menyimpan |
-| POST | `/datasets` | publik | Simpan CSV sebagai dataset sel |
-| GET | `/datasets/{id}` | publik | Baca lagi dataset dan cek manifest |
-| GET | `/named/{name}` | publik | Baca versi terbaru dari nama dataset |
-| GET | `/named/{name}/versions` | publik | Daftar versi dengan hash isi |
-| GET | `/named/{name}/versions/{version}` | publik | Baca satu versi persis |
-| GET | `/datasets/{id}/export` | publik | Export dengan k-anonymity |
-| GET | `/datasets/{id}/cells` | publik | Sel dalam kotak WGS 84 |
-| GET | `/catalog` | publik | Daftar dataset dari manifest. Filter `bbox` (kotak) dan `gid` (cakupan tepat) |
-| GET | `/datasets/{id}/coverage` | publik | Cakupan tepat dataset: himpunan sel kompak |
-| GET | `/cells/{gid}/profile` | publik | Nilai satu sel dan induknya |
-| POST | `/crosswalks` | publik | Simpan crosswalk |
-| GET | `/crosswalks/{name}` | publik | Baca crosswalk |
-| POST | `/crosswalks/{name}/apply` | publik | Terapkan crosswalk ke data sumber |
-| GET | `/datasets/{id}/rollup` | internal | Jumlah per induk |
-| POST | `/query/join` | internal | Join beberapa dataset lalu jumlahkan |
-| POST | `/datasets/compact` | publik | Simpan compact set |
-| POST | `/query/compact-join` | internal | Jumlah nilai di sel yang tercakup compact set |
-| POST | `/time-datasets` | publik | Simpan dataset nilai waktu |
-| POST | `/query/time-join` | internal | Join dua dataset nilai waktu lewat interval |
-| GET | `/map` | publik | Halaman peta |
+| GET | `/health` | public | Check that the server is up |
+| POST | `/import/analyse` | public | Check a CSV without storing it |
+| POST | `/datasets` | public | Store a CSV as a cell dataset |
+| GET | `/datasets/{id}` | public | Read a dataset again and check its manifest |
+| GET | `/datasets/{id}/parquet` | internal | The Parquet file of one dataset, for the browser map |
+| GET | `/named/{name}` | public | Read the latest version of a dataset name |
+| GET | `/named/{name}/versions` | public | List versions with their content hash |
+| GET | `/named/{name}/versions/{version}` | public | Read one exact version |
+| GET | `/datasets/{id}/export` | public | Export with k-anonymity |
+| GET | `/datasets/{id}/cells` | public | Cells whose centre is inside a WGS 84 box |
+| GET | `/catalog` | public | List datasets from manifests. Filters `bbox` (box) and `gid` (exact coverage) |
+| GET | `/datasets/{id}/coverage` | public | Exact coverage of a dataset: a compact cell set |
+| GET | `/cells/{gid}/profile` | public | Values of one cell and its parent |
+| POST | `/crosswalks` | public | Store a crosswalk |
+| GET | `/crosswalks/{name}` | public | Read a crosswalk |
+| POST | `/crosswalks/{name}/apply` | public | Apply a crosswalk to source data |
+| GET | `/datasets/{id}/rollup` | internal | Totals per parent cell |
+| POST | `/query/join` | internal | Join several datasets, then sum to a parent level |
+| POST | `/datasets/compact` | public | Store a compact set |
+| POST | `/query/compact-join` | internal | Sum values in the cells that a compact set covers |
+| POST | `/time-datasets` | public | Store a time-value dataset |
+| POST | `/query/time-join` | internal | Join two time-value datasets by interval |
+| GET | `/map` | public | Map page |
 
-Rute "internal" menjawab 404 kecuali `GSQ_INTERNAL_ROUTES=1`.
+Routes marked "internal" answer 404 unless `GSQ_INTERNAL_ROUTES=1`.
 
-## Dataset sel
+Routes marked "public" that return values per cell (`/datasets/{id}/cells`, `/cells/{gid}/profile`) are not behind that flag. They also do not check `share_policy` today.
+
+## Cell datasets
 
 ### POST /import/analyse
 
-Cek CSV dan laporkan kolom GID dan level. Tidak menyimpan apa pun.
+Check a CSV and report its GID column and level. Nothing is stored.
 
 ```zsh
 curl -F "file=@cells.csv" "http://127.0.0.1:8000/import/analyse"
 ```
 
-Query: `confirm_digit_gid` (bool, default `false`). Pakai `true` jika semua GID berupa angka. Angka bisa juga kode biasa, jadi platform meminta konfirmasi.
+Query: `confirm_digit_gid` (bool, default `false`). Use `true` when every GID is a number. A number can also be a normal code, so the platform asks for confirmation.
 
 ### POST /datasets
 
-Cek CSV, lalu simpan sebagai dataset sel dengan manifest.
+Check a CSV, then store it as a cell dataset with a manifest.
 
 Form:
 
-| Field | Isi |
+| Field | Value |
 |---|---|
-| `file` | CSV dengan kolom GID dan kolom nilai |
-| `value_fields` | JSON array, misalnya `[{"name":"share","logical_type":"numeric","semantics":"MEASUREMENT","unit":"ratio"}]` |
-| `license` | **Wajib.** Lisensi atau syarat data sumber. Upload tanpa ini ditolak (422). |
-| `share_policy` | **Wajib.** `internal`, `k_anon_only`, atau `public`. Upload tanpa ini ditolak (422). |
-| `owner`, `title`, `source_name` | Opsional. Teks untuk katalog. |
-| `refresh` | Opsional. `once` (default), `daily`, `weekly`, `monthly`, `yearly`, atau `irregular`. Dipakai untuk badge basi di katalog. |
-| `name` | Opsional. Upload dengan nama ini jadi versi berikutnya (lihat "Versi dataset"). Tanpa nama, dataset disimpan seperti biasa. |
+| `file` | CSV with a GID column and value columns |
+| `value_fields` | JSON array, for example `[{"name":"share","logical_type":"numeric","semantics":"MEASUREMENT","unit":"ratio"}]` |
+| `license` | **Required.** License or terms of the source data. Without it, the upload is rejected (422). |
+| `share_policy` | **Required.** `internal`, `k_anon_only`, or `public`. Without it, the upload is rejected (422). |
+| `owner`, `title`, `source_name` | Optional. Text for the catalog. |
+| `refresh` | Optional. `once` (default), `daily`, `weekly`, `monthly`, `yearly`, or `irregular`. Used for the stale badge in the catalog. |
+| `name` | Optional. An upload with this name becomes the next version (see "Dataset versions"). Without a name, the dataset is stored as usual. |
 
-Setiap item di `value_fields` punya:
+Each item in `value_fields` has:
 
-- `name`: nama kolom di CSV. Nama yang dicadangkan kontrak tidak boleh dipakai, misalnya `coverage_ratio`.
-- `logical_type`: `numeric` atau `categorical`.
-- `semantics`: `COUNT`, `TOTAL`, `DENSITY`, `MEASUREMENT`, `RATE`, atau `CATEGORICAL`.
-- `unit`: teks atau `null`.
-- `space_aggregation` (opsional): cara menggabungkan nilai sel anak saat naik level. Jika kosong, dipakai default dari `semantics`: `COUNT`/`TOTAL` → `sum`, `DENSITY` → `weighted_mean` dengan bobot `area`, `MEASUREMENT` → `median`, `CATEGORICAL` → `majority_weighted`, `RATE` → `none` (perlu bobot penyebut dulu).
-- `space_weight` (opsional): `null`, `area`, atau nama kolom `COUNT`/`TOTAL` lain di dataset yang sama.
+- `name`: column name in the CSV. Names reserved by the contract cannot be used, for example `coverage_ratio`.
+- `logical_type`: `numeric` or `categorical`.
+- `semantics`: `COUNT`, `TOTAL`, `DENSITY`, `MEASUREMENT`, `RATE`, or `CATEGORICAL`.
+- `unit`: text or `null`.
+- `space_aggregation` (optional): how child cell values combine when you go up a level. If empty, the default for the `semantics` is used: `COUNT`/`TOTAL` → `sum`, `DENSITY` → `weighted_mean` with weight `area`, `MEASUREMENT` → `median`, `CATEGORICAL` → `majority_weighted`, `RATE` → `none` (needs a denominator weight first).
+- `space_weight` (optional): `null`, `area`, or the name of another `COUNT`/`TOTAL` column in the same dataset.
 
-Manifest yang disimpan memakai format 1.1. Platform mengisi sendiri statistik kolom, cakupan (`extent`, kotak WGS 84), dan hash isi file.
+The stored manifest uses format 1.1. The platform fills in column statistics, the coverage (`extent`, a WGS 84 box), and the content hash of the file.
 
-Setiap upload juga dicek seperti `gsq check`: GID kosong atau rusak, GID kembar, dan level campur. Kalau ada baris yang salah, balasannya 422 dengan `detail.problems`: satu baris per masalah, berisi nomor baris. Contoh: `"row 4: invalid GID 'zz'"` atau `"duplicate GID ...: rows 1, 2"`.
+Every upload is also checked the way `gsq check` checks it: empty or broken GIDs, duplicate GIDs, and mixed levels. If a row is wrong, the response is 422 with `detail.problems`: one line per problem, with the row number. Examples: `"row 4: invalid GID 'zz'"` or `"duplicate GID ...: rows 1, 2"`.
 
 Query: `confirm_digit_gid`.
 
-Jawaban 201 berisi `dataset_id`, `level`, `rows`, `unique_cells`, `value_fields`, `dropped_columns`, dan `valid`.
+A 201 response includes `dataset_id`, `level`, `rows`, `unique_cells`, `value_fields`, `dropped_columns`, and `valid`.
 
 ### GET /datasets/{dataset_id}
 
-Baca dataset lagi dan cek manifest-nya. Jawaban berisi manifest lengkap. Jika cek gagal, jawabannya 422.
+Read the dataset again and check its manifest. The response contains the full manifest. If the check fails, the response is 422.
 
-### Versi dataset (L18)
+### Dataset versions (L18)
 
-Upload dengan `name` yang sudah ada membuat versi baru (`v2`, `v3`, dan seterusnya). Versi lama tidak ditimpa.
+An upload with a `name` that already exists creates a new version (`v2`, `v3`, and so on). Old versions are not overwritten.
 
-- Isi yang sama persis dengan salah satu versi (hash `content_sha256` sama) ditolak dengan 409.
-- `GET /named/{name}` memberi versi terbaru. `GET /named/{name}/versions/{version}` memberi satu versi, lengkap dengan manifest dan hash-nya.
-- `GET /named/{name}/versions` memberi daftar versi. Jika nama tidak ada, jawabannya 404.
-- Dataset tanpa nama tetap bisa dibaca lewat `/datasets/{dataset_id}`. Tidak ada yang berubah untuk dataset lama.
-- Nama: 1 sampai 64 karakter, huruf kecil, angka, `_` atau `-`, mulai dengan huruf atau angka.
-- Upload bersamaan dengan nama yang sama tidak saling menimpa. Jika dua upload memilih nomor yang sama, yang kalah mencoba nomor berikutnya (sampai 5 kali). Jika tetap kalah, jawabannya 409, dan upload itu bisa diulang. Tidak ada jawaban 500 karena balapan ini.
-- Hanya folder versi bernomor kanonik yang dihitung: `v1`, `v2`, dan seterusnya. Folder seperti `v0` atau `v01` diabaikan.
+- Content that is exactly the same as an existing version (same `content_sha256`) is rejected with 409.
+- `GET /named/{name}` returns the latest version. `GET /named/{name}/versions/{version}` returns one version, with its manifest and hash.
+- `GET /named/{name}/versions` returns the list of versions. If the name does not exist, the response is 404.
+- A dataset without a name can still be read with `/datasets/{dataset_id}`. Nothing changes for old datasets.
+- Name: 1 to 64 characters, lowercase letters, digits, `_` or `-`, starting with a letter or digit.
+- Uploads with the same name at the same time do not overwrite each other. If two uploads pick the same version number, the loser tries the next number (up to 5 times). If it still loses, the response is 409, and that upload can be retried. A race like this never returns 500.
+- Only folders with a canonical version number are counted: `v1`, `v2`, and so on. Folders such as `v0` or `v01` are ignored.
 
 ### GET /catalog
 
-Daftar metadata semua dataset. Hanya membaca manifest, tidak membuka file Parquet.
+List metadata for all datasets. It reads manifests only and does not open Parquet files.
 
-Dataset bernama ikut terdaftar, hanya versi terbaru tiap nama. Barisnya punya field `name` dan `version`, dan `dataset_id` berisi nama itu. Dataset lama tanpa nama tetap sama seperti sebelumnya. Untuk membaca versi lain, pakai `/named/{name}/versions/{version}`.
+Named datasets are listed too, but only the latest version of each name. Each row has a `name` and a `version` field, and `dataset_id` holds the name. Datasets without a name are listed as before. To read another version, use `/named/{name}/versions/{version}`.
 
-Query `bbox=min_lon,min_lat,max_lon,max_lat` (opsional): hanya dataset yang kotak cakupannya (`extent`, manifest 1.1) menyentuh kotak ini. Dataset tanpa `extent`, misalnya manifest 1.0, tidak ikut. Ini uji kotak (bounding box), bukan uji sel per sel. Kotak yang tidak valid dijawab 422.
+Query `bbox=min_lon,min_lat,max_lon,max_lat` (optional): keep only datasets whose coverage box (`extent`, manifest 1.1) touches this box. Datasets without `extent`, for example manifest 1.0, are left out. This is a bounding box test, not a cell-by-cell test. An invalid box returns 422.
 
-Query `gid=<sel>` (opsional): hanya dataset yang cakupan tepatnya memuat sel ini, baik sel itu sendiri maupun di bawah sel induk yang tersimpan. Ini uji tepat. GID yang tidak valid dijawab 422. Panggilan pertama untuk sebuah dataset membangun cakupannya dari data, lalu menyimpannya di `<data>/coverage/<dataset_id>.json`. Cache itu indeks platform, bukan bagian dari kontrak dataset.
+Query `gid=<cell>` (optional): keep only datasets whose exact coverage includes this cell, either the cell itself or a cell under a stored parent. This is an exact test. An invalid GID returns 422. The first call for a dataset builds its coverage from the data and saves it to `<data>/coverage/<dataset_id>.json`. That cache is a platform index, not part of the dataset contract.
 
 ### GET /datasets/{dataset_id}/coverage
 
-Cakupan tepat dataset: himpunan sel kompak, dihitung dari kolom `gid` lalu disimpan di cache. Dipakai peta untuk menggambar cakupan.
+Exact coverage of a stored dataset: its canonical compact cell set. It is built from the `gid` column and cached. The map uses it to draw the coverage.
 
 ### GET /cells/{gid}/profile
 
-Nilai untuk satu sel, induknya, dan dataset yang punya level lebih halus dari sel itu. Hanya dataset domain ID yang ikut. Dataset lain dilewati dan alasannya dicatat.
+Values for one cell, its parent, and any dataset with a finer level than that cell. Only ID domain datasets are included. Other datasets are skipped, and the reason is recorded.
 
-GID tidak valid menghasilkan 422.
+An invalid GID returns 422.
 
 ### GET /datasets/{dataset_id}/cells
 
-Sel yang titik pusatnya berada dalam kotak WGS 84.
+Cells whose centre point is inside a WGS 84 box.
 
 Query:
 
-- `bbox`: `min_lon,min_lat,max_lon,max_lat`. Wajib.
-- `limit`: jumlah maksimum sel, default 1000, minimal 1.
+- `bbox`: `min_lon,min_lat,max_lon,max_lat`. Required.
+- `limit`: maximum number of cells, default 1000, minimum 1.
 
-## Export publik
+### GET /datasets/{dataset_id}/parquet (internal)
+
+The Parquet file of one dataset. The browser map reads it to roll cells up to the zoom level. It holds every cell, so it answers 404 unless `GSQ_INTERNAL_ROUTES=1`.
+
+## Public export
 
 ### GET /datasets/{dataset_id}/export
 
-Export dengan k-anonymity. Detail aturan ada di [Privasi dan rute internal](privacy-and-internal-routes.md).
+Export with k-anonymity. For the full rules, see [Privacy and internal routes](privacy-and-internal-routes.md).
 
 Query:
 
-- `count`: nama kolom COUNT di dataset. Wajib.
-- `k`: ambang anonimitas. Default 5. Minimal 2.
+- `count`: name of the COUNT column in the dataset. Required.
+- `k`: anonymity threshold. Default 5. Minimum 2.
 
-Contoh:
+Example:
 
 ```zsh
 curl "http://127.0.0.1:8000/datasets/ID-L9-0123456789ab/export?count=population&k=5"
 ```
 
-Jawaban berisi `k`, `count_field`, `input_level`, `rows` (setiap baris punya `gid`, `level`, `count`, `totals`, dan `source_cell_count`), `suppressed_cell_count`, `suppressed_count`, dan `dropped_fields`.
+The response contains `k`, `count_field`, `input_level`, `rows` (each row has `gid`, `level`, `count`, `totals`, and `source_cell_count`), `suppressed_cell_count`, `suppressed_count`, and `dropped_fields`.
 
 ## Crosswalk
 
-Crosswalk mengubah data sumber, misalnya per kelurahan, menjadi data per sel. Bobot per sumber harus berjumlah 1.
+A crosswalk turns source data, such as data per village, into data per cell. The weights for each source must add up to 1.
 
 ### POST /crosswalks
 
 Form:
 
-| Field | Isi |
+| Field | Value |
 |---|---|
-| `file` | CSV dengan kolom `sumber_id,gid,bobot` |
-| `name` | Nama crosswalk. Harus sesuai pola ID dataset |
-| `domain_code` | Kode domain, misalnya `ID` |
-| `level` | Level sel hasil |
-| `weight_kind` | Jenis bobot, misalnya `luas` |
+| `file` | CSV with the columns `sumber_id,gid,bobot` (source id, GID, weight) |
+| `name` | Crosswalk name. Must match the dataset ID pattern |
+| `domain_code` | Domain code, for example `ID` |
+| `level` | Level of the output cells |
+| `weight_kind` | Kind of weight, for example `luas` (area) |
 
-Crosswalk disimpan di folder `crosswalks` di bawah folder data. Validasi menolak bobot tidak positif, jumlah bobot per sumber yang tidak 1, GID di luar level, dan pasangan sumber-GID ganda.
+The crosswalk is stored in the `crosswalks` folder under the data folder. Validation rejects weights that are not positive, weights per source that do not add up to 1, GIDs outside the level, and duplicate source-GID pairs.
 
 ### GET /crosswalks/{name}
 
-Baca manifest dan jumlah baris crosswalk. Nama yang tidak ada menghasilkan 404.
+Read the manifest and the row count of the crosswalk. An unknown name returns 404.
 
 ### POST /crosswalks/{name}/apply
 
-Terapkan crosswalk ke data sumber dan simpan hasilnya sebagai dataset COUNT baru.
+Apply the crosswalk to source data and store the result as a new COUNT cell dataset.
 
 Form:
 
-| Field | Isi |
+| Field | Value |
 |---|---|
-| `file` | CSV data sumber dengan kolom `sumber_id` dan kolom nilai |
-| `dataset_id` | ID untuk dataset sel baru |
-| `value_columns` | Daftar kolom nilai, dipisah koma |
-| `license` | **Wajib.** Lisensi atau syarat data sumber. Tanpa ini, permintaan ditolak (422). |
-| `share_policy` | **Wajib.** `internal`, `k_anon_only`, atau `public`. Tanpa ini, permintaan ditolak (422). |
+| `file` | CSV of source data with a `sumber_id` column and value columns |
+| `dataset_id` | ID for the new cell dataset |
+| `value_columns` | Comma-separated list of value columns |
+| `license` | **Required.** License or terms of the source data. Without it, the request is rejected (422). |
+| `share_policy` | **Required.** `internal`, `k_anon_only`, or `public`. Without it, the request is rejected (422). |
 
-Platform menolak sumber yang tidak ada di crosswalk. Platform juga memeriksa bahwa jumlah nilai di sel sama dengan jumlah nilai sumber. Jika tidak sama, dataset tidak disimpan.
+The platform rejects a source that is not in the crosswalk. It also checks that the total of each value in the cells equals the total in the source. If they differ, the dataset is not stored.
 
-## Rute internal
+## Internal routes
 
-Rute ini hanya aktif dengan `GSQ_INTERNAL_ROUTES=1`.
+These routes are active only with `GSQ_INTERNAL_ROUTES=1`.
 
 ### GET /datasets/{dataset_id}/rollup
 
-Jumlahkan kolom ke level induk yang lebih kasar.
+Sum columns up to a coarser parent level.
 
 Query:
 
-- `level`: level induk. Harus antara 0 dan level dataset.
-- `sum`: nama kolom, dipisah koma.
+- `level`: parent level. Must be between 0 and the dataset level.
+- `sum`: column names, comma-separated.
 
-Jawaban berisi `rows` (setiap baris punya `parent_gid`, `cells`, dan jumlah per kolom) dan `cells`.
+The response contains `rows` (each row has `parent_gid`, `cells`, and a total per column) and `cells`.
 
-Catatan: jika `level` sama dengan level dataset, setiap sel kembali dengan nilai aslinya. Ini alasan rute ini tidak boleh publik.
+Note: when `level` equals the dataset level, each cell comes back with its original value. This is why this route must not be public.
 
 ### POST /query/join
 
-Gabungkan dua atau lebih dataset dengan level yang sama, lalu jumlahkan ke induk.
+Join two or more datasets with the same level, then sum to a parent level.
 
 JSON:
 
@@ -219,31 +226,31 @@ JSON:
 }
 ```
 
-- `dataset_ids`: minimal dua, tidak boleh sama.
-- `level`: level induk.
-- `sum`: kolom yang dijumlahkan.
-- `gid_prefixes`: opsional. Batasi ke sel yang GID-nya diawali prefix ini.
+- `dataset_ids`: at least two, no duplicates.
+- `level`: parent level.
+- `sum`: columns to sum.
+- `gid_prefixes`: optional. Limit to cells whose GID starts with one of these prefixes.
 
-Jika dua dataset punya kolom yang sama, nama di jawaban memakai `dataset_id.kolom`. Jawaban juga berisi `cells_joined`.
+If two datasets have a column with the same name, the response names it `dataset_id.column`. The response also contains `cells_joined`.
 
-## Compact set
+## Compact sets
 
 ### POST /datasets/compact
 
-Simpan compact set dari CSV dengan kolom tepat `gid,level`.
+Store a compact set from a CSV with exactly the columns `gid,level`.
 
-Set harus kanonik. Platform tidak memperbaiki set. Set yang tidak kanonik ditolak dengan 422, misalnya:
+The set must be canonical. The platform does not repair a set. A set that is not canonical is rejected with 422, for example when:
 
-- baris ada di dalam baris lain;
-- semua 25 anak sebuah induk ada, padahal seharusnya diganti induknya;
-- baris duplikat;
-- level tidak sama dengan panjang GID.
+- a row is inside another row;
+- all 25 children of a parent are present, when the parent should replace them;
+- a row is duplicated;
+- the level does not match the length of the GID.
 
-Set yang sama dua kali menghasilkan 409.
+Storing the same set twice returns 409.
 
 ### POST /query/compact-join
 
-Internal. Jumlahkan kolom di sel dataset yang tercakup compact set.
+Internal. Sum columns in the dataset cells that a compact set covers.
 
 JSON:
 
@@ -251,36 +258,36 @@ JSON:
 {"compact_id": "ID-COMPACT-0123456789ab", "dataset_id": "ID-L9-0123456789ab", "sum": ["population"]}
 ```
 
-Jawaban: `matched_cells` dan `sums`.
+Response: `matched_cells` and `sums`.
 
-## Dataset waktu (L7)
+## Time datasets (L7)
 
 ### POST /time-datasets
 
-Simpan dataset nilai waktu. Satu baris per sel dan per periode.
+Store a time-value dataset. One row per cell and per period.
 
 Form:
 
-| Field | Isi |
+| Field | Value |
 |---|---|
-| `file` | CSV dengan kolom `gid,period` dan kolom nilai |
-| `level` | Level sel |
-| `period_type` | `year`, `month`, `day`, atau `hour` |
-| `period_start` | Awal rentang, ikut `period_type` |
-| `period_end` | Akhir rentang, tidak ikut (eksklusif) |
-| `value_fields` | JSON array seperti di `/datasets` |
-| `bucket_hours` | Hanya untuk `hour`: 1, 2, 3, 4, 6, 8, atau 12 |
+| `file` | CSV with the columns `gid,period` and value columns |
+| `level` | Cell level |
+| `period_type` | `year`, `month`, `day`, or `hour` |
+| `period_start` | Start of the range, in the form of `period_type` |
+| `period_end` | End of the range, not included (exclusive) |
+| `value_fields` | JSON array, as in `/datasets` |
+| `bucket_hours` | Only for `hour`: 1, 2, 3, 4, 6, 8, or 12 |
 
-Aturan waktu:
+Time rules:
 
-- Label periode: `2026`, `2026-11`, `2026-11-19`, atau `2026-11-19T04`. Tidak ada offset zona waktu.
-- Semua waktu dalam UTC. Konversi WIB, WITA, atau WIT sebelum menyimpan.
-- Label jam harus berupa awal bucket. Contoh: bucket 4 jam hanya boleh mulai di 00, 04, 08, 12, 16, atau 20.
-- Setiap nilai `MEASUREMENT` harus punya `time_aggregation`: `mean`, `min`, atau `max`.
+- Period labels: `2026`, `2026-11`, `2026-11-19`, or `2026-11-19T04`. No time zone offset.
+- All times are in UTC. Convert WIB, WITA, or WIT before storing.
+- An hour label must be the start of a bucket. Example: a 4-hour bucket can start only at 00, 04, 08, 12, 16, or 20.
+- Each `MEASUREMENT` value must have a `time_aggregation`: `mean`, `min`, or `max`.
 
 ### POST /query/time-join
 
-Internal. Hitung baris kiri yang punya baris kanan di sel yang sama dan relasi interval yang cocok. Lalu jumlahkan kolom kiri.
+Internal. Count left rows that have a right row in the same cell and a matching interval relation. Then sum the left columns.
 
 JSON:
 
@@ -288,11 +295,18 @@ JSON:
 {"left_id": "TIME-aaaaaaaaaaaa", "right_id": "TIME-bbbbbbbbbbbb", "relation": "contained", "sum": ["rain_mm"]}
 ```
 
-`relation` bisa `equal`, `contained` (kiri ada di dalam kanan), `contains` (kiri memuat kanan), atau `overlap`. Default `contained`.
+`relation` can be `equal`, `contained` (left is inside right), `contains` (left contains right), or `overlap`. Default `contained`.
 
-Jawaban: `matched_rows`, `sums`, `relation`, `left_id`, dan `right_id`.
+Response: `matched_rows`, `sums`, `relation`, `left_id`, and `right_id`.
 
-## Halaman peta
+## Map page
 
-- `GET /map`: halaman peta dengan lapisan sel.
-- `GET /map/pkg/{filename}`: file pendukung halaman peta.
+- `GET /map`: map page with the cell layer.
+- `GET /map/pkg/{filename}`: support files for the map page.
+- `GET /map/js/{filename}`: support scripts for the map page, such as `rollup.mjs`.
+
+---
+
+## Ringkasan Bahasa Indonesia
+
+Halaman ini berisi semua endpoint platform: parameter, contoh, dan jawaban. Rute bertanda "internal" hanya aktif dengan `GSQ_INTERNAL_ROUTES=1`. Rute publik `/datasets/{id}/cells` dan `/cells/{gid}/profile` mengembalikan nilai per sel dan belum memeriksa `share_policy`.

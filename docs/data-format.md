@@ -1,90 +1,96 @@
-# Format data
+# Data format
 
-Platform menyimpan setiap dataset sebagai satu folder. Folder itu berisi `manifest.json` dan satu atau lebih file Parquet.
+The platform stores each dataset as one folder. The folder holds `manifest.json` and one or more Parquet files.
 
-## Lokasi
+## Location
 
 ```text
 <GSQ_PLATFORM_DATA>/
-  ID-L9-0123456789ab/          dataset sel (cell_values)
+  ID-L9-0123456789ab/          cell dataset (cell_values)
     manifest.json
     data/<...>.parquet
   ID-COMPACT-0123456789ab/     compact set
     manifest.json
     data/compact.parquet
-  TIME-0123456789ab/           dataset waktu (cell_time_values)
+  TIME-0123456789ab/           time dataset (cell_time_values)
     manifest.json
     data/time_values.parquet
   crosswalks/
-    <nama-crosswalk>/
+    <crosswalk-name>/
 ```
 
-Jika `GSQ_PLATFORM_DATA` tidak diisi, folder dasarnya `data/cells`.
+If `GSQ_PLATFORM_DATA` is not set, the base folder is `data/cells`.
 
-## Pola ID
+## ID patterns
 
-| Jenis | Pola | Contoh |
+| Type | Pattern | Example |
 |---|---|---|
-| Dataset sel | `ID-L<level>-<12 heks>` | `ID-L9-0123456789ab` |
-| Compact set | `ID-COMPACT-<12 heks>` | `ID-COMPACT-0123456789ab` |
-| Dataset waktu | `TIME-<12 heks>` | `TIME-0123456789ab` |
+| Cell dataset | `ID-L<level>-<12 hex>` | `ID-L9-0123456789ab` |
+| Compact set | `ID-COMPACT-<12 hex>` | `ID-COMPACT-0123456789ab` |
+| Time dataset | `TIME-<12 hex>` | `TIME-0123456789ab` |
 
-ID dibuat dari isi file dan pengaturan upload. Jadi file yang sama dengan pengaturan yang sama selalu menghasilkan ID yang sama. Upload kedua menghasilkan 409.
+The ID is built from the file content and the upload settings. So the same file with the same settings always gets the same ID. A second upload of it returns 409.
 
-## Tiga jenis dataset
+## Three dataset types
 
-### Dataset sel (`cell_values`)
+### Cell dataset (`cell_values`)
 
-Satu baris per sel. GID unik.
+One row per cell. GIDs are unique.
 
-Manifest penting:
+Important manifest fields:
 
 - `dataset_type`: `cell_values`
-- `level`: level semua GID
+- `level`: level of all GIDs
 - `domain_code`, `domain_id`
-- `value_fields`: nama, `logical_type`, `semantics`, `unit`
-- `identity`: `gid_column` dan `unique_gid: true`
+- `value_fields`: name, `logical_type`, `semantics`, `unit`
+- `identity`: `gid_column` and `unique_gid: true`
 - `storage`: `row_count`, `unique_cell_count`, `sorted_by: ["gid"]`
-- `provenance`: `created_by`, `created_at`, dan generator
+- `provenance`: `created_by`, `created_at`, and the generator
 
-Dataset sel bisa `cell_contributions` untuk data sumber yang belum digabung. Platform saat ini menulis `cell_values`.
+A cell dataset can also be `cell_contributions`, for source data that is not merged yet. The platform currently writes `cell_values`.
 
 ### Compact set (`cell_compact_set`)
 
-Baris `gid` dan `level`. Level boleh campur. Set harus kanonik.
+Rows with `gid` and `level`. Levels can be mixed. The set must be canonical.
 
-Manifest penting:
+Important manifest fields:
 
 - `dataset_type`: `cell_compact_set`
-- `levels_present`: daftar level yang ada
+- `levels_present`: list of levels in the set
 - `identity`: `mixed_levels: true`
 - `storage`: `row_count`, `sorted_by: ["gid"]`
 
-Aturan lengkap ada di [dokumentasi engine](https://github.com/geosquareai/geosquare-engine/blob/main/docs/compact-sets.md).
+For the full rules, see the [engine docs](https://github.com/geosquareai/geosquare-engine/blob/main/docs/compact-sets.md).
 
-### Dataset waktu (`cell_time_values`)
+### Time dataset (`cell_time_values`)
 
-Baris `gid`, `period`, dan kolom nilai. Pasangan `(gid, period)` unik.
+Rows with `gid`, `period`, and value columns. Each `(gid, period)` pair is unique.
 
-Manifest penting:
+Important manifest fields:
 
 - `dataset_type`: `cell_time_values`
 - `level`
-- `period_type`: `year`, `month`, `day`, atau `hour`
-- `bucket_hours`: hanya untuk `hour`
-- `timezone`: selalu `UTC`
-- `period_start` (dimasukkan) dan `period_end` (tidak dimasukkan)
-- `identity`: `unique_gid: false` dan `unique_key: ["gid", "period"]`
+- `period_type`: `year`, `month`, `day`, or `hour`
+- `bucket_hours`: only for `hour`
+- `timezone`: always `UTC`
+- `period_start` (included) and `period_end` (not included)
+- `identity`: `unique_gid: false` and `unique_key: ["gid", "period"]`
 - `storage`: `sorted_by: ["gid", "period"]`
-- `value_fields`: setiap item punya `semantics`, dan `time_aggregation` untuk `MEASUREMENT`
+- `value_fields`: each item has `semantics`, and `time_aggregation` for `MEASUREMENT`
 
-Penyimpanan belum dipartisi. `partitioning` kosong berarti satu file.
+Storage is not partitioned yet. An empty `partitioning` means one file.
 
-## Nilai yang dicadangkan
+## Reserved names
 
-- Kolom `period` dicadangkan di dataset waktu. Nama itu tidak boleh dipakai untuk nilai.
-- Kolom `coverage_ratio` dicadangkan kontrak. Ganti nama di CSV sebelum upload.
+- The column `period` is reserved in time datasets. You cannot use that name for a value.
+- The column `coverage_ratio` is reserved by the contract. Rename it in the CSV before upload.
 
-## Membaca ulang
+## Reading again
 
-Setiap pembacaan memeriksa ulang manifest dan baris. Dataset yang melanggar aturan ditolak. Platform tidak memperbaikinya.
+Every read checks the manifest and the rows again. A dataset that breaks the rules is rejected. The platform does not repair it.
+
+---
+
+## Ringkasan Bahasa Indonesia
+
+Setiap dataset disimpan sebagai satu folder berisi `manifest.json` dan file Parquet. Ada tiga jenis: dataset sel (`cell_values`), compact set (`cell_compact_set`), dan dataset waktu (`cell_time_values`). ID dibuat dari isi file dan pengaturan upload. Kolom `period` dan `coverage_ratio` tidak boleh dipakai untuk nilai. Setiap pembacaan memeriksa ulang manifest dan baris.
