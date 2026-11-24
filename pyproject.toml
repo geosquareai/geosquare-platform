@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "GeoSquare platform: import tables with GID columns, store them as cells, draw them on a map."
 requires-python = ">=3.11"
 dependencies = [
-  "geosquare-engine>=0.2.0,<0.3",
+  "geosquare-engine>=0.3.0,<0.4",
   "geosquare-v2[table,registry,geo]==1.3.0",
   "fastapi>=0.110",
   "python-multipart>=0.0.9",
@@ -14,11 +14,8 @@ dependencies = [
 [project.optional-dependencies]
 test = ["pytest>=8", "httpx>=0.27", "geosquare-grid==1.1.1", "duckdb==1.5.0", "rasterio>=1.4"]
 raster = ["duckdb==1.5.0"]  # L14: reads rasters through the engine's DuckDB extension
-notebook = ["geosquare-engine", "matplotlib>=3.8", "ipykernel>=6"]  # L19: starter notebook
+notebook = ["geosquare-engine>=0.3.0,<0.4", "matplotlib>=3.8", "ipykernel>=6"]  # L19: starter notebook
 
-# The notebook needs df.gsq (engine main, PR #39), which no release has yet. Only the notebook extra uses this pin.
-[tool.uv.sources]
-geosquare-engine = { git = "https://github.com/geosquareai/geosquare-engine", rev = "8c793104348994c74cbc6d1a82863232dc1ac7df", subdirectory = "bindings/python", marker = "extra == 'notebook'" }
 
 [build-system]
 requires = ["hatchling"]

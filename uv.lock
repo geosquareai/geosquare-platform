@@ -642,8 +642,16 @@ wheels = [
 
 [[package]]
 name = "geosquare-engine"
-version = "0.2.0"
-source = { git = "https://github.com/geosquareai/geosquare-engine?subdirectory=bindings%2Fpython&rev=8c793104348994c74cbc6d1a82863232dc1ac7df#8c793104348994c74cbc6d1a82863232dc1ac7df" }
+version = "0.3.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/c2/ad/9073a5e89d5b11b11d353b0819fdee0fc21228e6890f3121fb0349700c73/geosquare_engine-0.3.0.tar.gz", hash = "sha256:03e4ade4489a48e195d40503d8cd9f29026d9bed557b8265a9d2508ea8e489a1", size = 50899, upload-time = "2026-11-24T13:14:49.596Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/35/fd/cf753f56dc716fed67d4daebf9ce84565e8ba224ea05b978fe5c655962f5/geosquare_engine-0.3.0-cp39-abi3-macosx_10_12_x86_64.whl", hash = "sha256:1e7a4ec2f9397328a520b053b6918d03955ce39b4de5b31bb1ae40931cf07d34", size = 309696, upload-time = "2026-11-24T13:14:42.856Z" },
+    { url = "https://files.pythonhosted.org/packages/62/dd/3aac3fc06f306620c70be59a1c060e4abd6b126f66eb9b13341d732ea4d2/geosquare_engine-0.3.0-cp39-abi3-macosx_11_0_arm64.whl", hash = "sha256:50ee210bdf1a9612dcfa485c1c0096fa74758be5f020add943d2d088c2a1689b", size = 305471, upload-time = "2026-11-24T13:14:44.267Z" },
+    { url = "https://files.pythonhosted.org/packages/ca/4d/e43cbc6a7a6af9e4d0edce776519e88e76b63c785f570833411ab536400c/geosquare_engine-0.3.0-cp39-abi3-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:ccd66972882588cf8d0149233d9981d0ae64480401482accf3faeb1f2ed65d22", size = 325932, upload-time = "2026-11-24T13:14:45.698Z" },
+    { url = "https://files.pythonhosted.org/packages/c3/ef/819df3a477e8b1966b9df1b51ebd82249b0433770edf94339fea1b3e043e/geosquare_engine-0.3.0-cp39-abi3-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:7d9cfb35ebecc7a39214933154298dd7b1d53fa421efb106f97f1576b53f3121", size = 335652, upload-time = "2026-11-24T13:14:47.101Z" },
+    { url = "https://files.pythonhosted.org/packages/95/40/396453957b1555e62674d653d9011191f93d9b07a9b83ad7b475f8434a30/geosquare_engine-0.3.0-cp39-abi3-win_amd64.whl", hash = "sha256:184386444c36f7ee9760d7a3db3a6599e5abe51665d79e0f2a5b26aef5c9a3a7", size = 196290, upload-time = "2026-11-24T13:14:48.432Z" },
+]
 
 [[package]]
 name = "geosquare-grid"
@@ -663,6 +671,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "fastapi" },
+    { name = "geosquare-engine" },
     { name = "geosquare-v2", extra = ["geo", "registry", "table"] },
     { name = "python-multipart" },
     { name = "uvicorn" },
@@ -691,8 +700,8 @@ requires-dist = [
     { name = "duckdb", marker = "extra == 'raster'", specifier = "==1.5.0" },
     { name = "duckdb", marker = "extra == 'test'", specifier = "==1.5.0" },
     { name = "fastapi", specifier = ">=0.110" },
-    { name = "geosquare-engine", marker = "extra == 'notebook'", git = "https://github.com/geosquareai/geosquare-engine?subdirectory=bindings%2Fpython&rev=8c793104348994c74cbc6d1a82863232dc1ac7df" },
-    { name = "geosquare-engine", marker = "extra != 'notebook'", specifier = ">=0.2.0,<0.3" },
+    { name = "geosquare-engine", specifier = ">=0.3.0,<0.4" },
+    { name = "geosquare-engine", marker = "extra == 'notebook'", specifier = ">=0.3.0,<0.4" },
     { name = "geosquare-grid", marker = "extra == 'test'", specifier = "==1.1.1" },
     { name = "geosquare-v2", extras = ["table", "registry", "geo"], specifier = "==1.3.0" },
     { name = "httpx", marker = "extra == 'test'", specifier = ">=0.27" },

@@ -14,7 +14,7 @@ Perintah ini membaca `uv.lock`. Versi yang terkunci sama dengan yang diuji.
 
 | Paket | Versi | Alasan |
 |---|---|---|
-| `geosquare-engine` | `>=0.2.0,<0.3` | Fungsi compact set ada sejak 0.2.0 |
+| `geosquare-engine` | `>=0.3.0,<0.4` | Rilis PyPI 0.3.0 (ada `df.gsq`). Extra `notebook` memakai pin yang sama. |
 | `geosquare-v2[table,registry,geo]` | `==1.2.0` | `time_store` dan `compact_store` ada sejak 1.2.0 |
 | `geosquare-grid` | `==1.1.1` (hanya extra `test`) | Tes paritas V1. Ini lisensi GPL, jadi tidak ikut di runtime |
 
