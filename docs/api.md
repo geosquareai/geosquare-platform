@@ -96,12 +96,14 @@ Upload dengan `name` yang sudah ada membuat versi baru (`v2`, `v3`, dan seterusn
 - `GET /named/{name}/versions` memberi daftar versi. Jika nama tidak ada, jawabannya 404.
 - Dataset tanpa nama tetap bisa dibaca lewat `/datasets/{dataset_id}`. Tidak ada yang berubah untuk dataset lama.
 - Nama: 1 sampai 64 karakter, huruf kecil, angka, `_` atau `-`, mulai dengan huruf atau angka.
-
-Shortcut: dua upload bersamaan dengan nama sama bisa dapat nomor versi yang sama. Belum dikunci. Upgrade jika ada upload paralel.
+- Upload bersamaan dengan nama yang sama tidak saling menimpa. Jika dua upload memilih nomor yang sama, yang kalah mencoba nomor berikutnya (sampai 5 kali). Jika tetap kalah, jawabannya 409, dan upload itu bisa diulang. Tidak ada jawaban 500 karena balapan ini.
+- Hanya folder versi bernomor kanonik yang dihitung: `v1`, `v2`, dan seterusnya. Folder seperti `v0` atau `v01` diabaikan.
 
 ### GET /catalog
 
 Daftar metadata semua dataset. Hanya membaca manifest, tidak membuka file Parquet.
+
+Dataset bernama ikut terdaftar, hanya versi terbaru tiap nama. Barisnya punya field `name` dan `version`, dan `dataset_id` berisi nama itu. Dataset lama tanpa nama tetap sama seperti sebelumnya. Untuk membaca versi lain, pakai `/named/{name}/versions/{version}`.
 
 Query `bbox=min_lon,min_lat,max_lon,max_lat` (opsional): hanya dataset yang kotak cakupannya (`extent`, manifest 1.1) menyentuh kotak ini. Dataset tanpa `extent`, misalnya manifest 1.0, tidak ikut. Ini uji kotak (bounding box), bukan uji sel per sel. Kotak yang tidak valid dijawab 422.
 
