@@ -39,6 +39,18 @@ def test_bad_rows_are_listed_with_row_numbers():
     assert report.problems == ["row 2: invalid GID 'zz'", "row 4: invalid GID 'zz'"]
 
 
+@pytest.mark.parametrize("bad", [3, 10, 40])
+def test_rows_are_listed_when_key_detection_rejects(bad):
+    # 200 rows: 3 bad is 98.5% valid, below the 99% key rule, so the key column is rejected.
+    good = [gs.encode(9, 4000 + i, 5000) for i in range(200)]
+    for index in range(bad):
+        good[index * 4] = "zz"
+    report = analyse(csv_of(good), confirm_digit_gid=True)
+    assert not report.ok and report.status == "invalid_rows"
+    assert len(report.problems) == bad
+    assert report.problems[0] == "row 1: invalid GID 'zz'"
+
+
 def test_duplicate_and_mixed_level_rows_are_listed(gids):
     coarse = gs.parent(gids[0])
     report = analyse(csv_of([gids[0], gids[0], coarse]), confirm_digit_gid=True)

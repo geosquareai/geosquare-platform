@@ -122,6 +122,14 @@ def analyse(data: bytes, *, confirm_digit_gid: bool = False) -> ImportReport:
     described = [_describe(d) for d in found]
 
     if not keys:
+        # No column passed the 99% test. Still list the rows of the column closest to a GID column.
+        best = max((d for d in found if d["kind"] == KIND_GID), key=lambda d: d["valid_ratio"], default=None)
+        if best is not None and best["valid_ratio"] > 0:
+            problems = gid_problems(cols[best["column"]])
+            if problems:
+                reason = f"{len(problems)} row problem(s), first: {problems[0]}"
+                return ImportReport(False, rows, best["column"], KIND_GID, None, "invalid_rows", reason, described,
+                                    problems[:MAX_PROBLEMS])
         return ImportReport(False, rows, None, None, None, "rejected",
                             "no column holds valid GIDs", described)
     if len(keys) > 1:
