@@ -77,3 +77,28 @@ Hasilnya:
 Pilih kolom id yang tidak kosong dan unik. Kolom id yang kosong menghentikan builder.
 
 Setelah dibuat, crosswalk bisa diunggah ke platform lewat `POST /crosswalks`.
+
+## Tabel referensi sel ke admin (L17)
+
+Alat ini membuat satu tabel Parquet: satu baris untuk setiap pasangan sel dan unit admin. Join ke tabel sel lewat `gid`, lalu `GROUP BY` kode admin mana pun.
+
+```zsh
+uv run python -m geosquare_platform.admin_reference batas.parquet out/admin_reference_l12.parquet \
+  --regency-column kode_kota \
+  --level 11 \
+  --source-name "Sumber batas" \
+  --license "lisensi sumber"
+```
+
+Flag wajib: `SOURCE`, `OUT`, `--source-name`, dan `--license`. Keduanya tidak boleh kosong. Tambahkan minimal satu dari `--village-column`, `--district-column`, atau `--regency-column`. Flag opsional: `--province-column` dan `--geometry-column` (default `geom`). Level default 11 (sel 100 m), sesuai K14 di `plan/04-risiko-dan-keputusan.md`. Pakai `--level 12` untuk sel 50 m.
+
+Kolom output: `gid`, `village_code`, `district_code`, `regency_code`, `province_code`, dan `area_weight`.
+
+- `area_weight` = luas irisan unit dengan sel dibagi luas sel.
+- Jumlah `area_weight` per `gid` = bagian sel yang tertutup unit admin. Nilainya paling besar 1. Nilainya tepat 1 kalau sel tertutup penuh, dan kurang dari 1 untuk sel di tepi wilayah. Jangan asumsikan semua sel berjumlah 1.
+- Unit admin tidak boleh tumpang tindih. Alat membandingkan total luas unit dengan luas gabungannya. Kalau ada tumpang tindih, alat berhenti dan tidak menulis file.
+- Input harus WGS 84 lon/lat (EPSG:4326). Koordinat di luar rentang derajat ditolak.
+- Jika `province_code` tidak diisi, alat memakai dua digit pertama dari kode kabupaten/kota.
+- Alat memakai builder poligon dari `geosquare-v2`. Setiap unit dipotong per tile 20 km (level 11, 200 x 200 sel) karena builder menolak lebih dari 100.000 sel kandidat.
+
+Metadata file menyimpan `source_name`, `license`, nama file sumber, level, dan waktu pembuatan. Isi lisensi harus diisi jujur. Jangan pakai file `dukcapil_*` tanpa izin tertulis.
