@@ -35,7 +35,7 @@ from .cellstore import (
 from .compactstore import COMPACT_ID_PATTERN, read_compact, store_compact_csv
 from .timestore import TIME_ID_PATTERN, join_time, read_time_dataset, store_time_csv
 from .crosswalk import CrosswalkRejected, crosswalk_csv, load_crosswalk, validate_crosswalk
-from .importer import ImportRejected, analyse, read_csv
+from .importer import ImportRejected, RowsRejected, analyse, read_csv
 from .registry import load_registry
 from .map_routes import _parse_bbox
 from .map_routes import router as map_router
@@ -150,6 +150,8 @@ async def create_dataset(
         )
     except DatasetExists as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except RowsRejected as exc:
+        raise HTTPException(status_code=422, detail={"reason": str(exc), "problems": exc.problems}) from exc
     except (ImportRejected, GeosquareError) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return stored.summary()

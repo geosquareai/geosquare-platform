@@ -10,18 +10,28 @@ import csv
 import io
 from dataclasses import asdict, dataclass, field
 
+import geosquare_engine as gs
 from geosquare_engine import detect_table
 
 DOMAIN = "ID"
 KIND_GID, KIND_URI = "gid", "uri"
 STATUS_CERTAIN, STATUS_NEEDS_CONFIRMATION = "certain", "needs_confirmation"
 MAX_ROWS = 2_000_000
+MAX_PROBLEMS = 100  # row problems returned in one reply; the reason gives the total
 # Bare GIDs that are all digits could be plain codes. We accept them only if the user says so.
 _ACCEPTED = {STATUS_CERTAIN}
 
 
 class ImportRejected(ValueError):
     """The file cannot be imported. The message says why."""
+
+
+class RowsRejected(ImportRejected):
+    """Some GID rows fail the checks. `problems` names each bad row, one line each."""
+
+    def __init__(self, message: str, problems: list[str]) -> None:
+        super().__init__(message)
+        self.problems = problems
 
 
 @dataclass
@@ -34,6 +44,7 @@ class ImportReport:
     status: str
     reason: str
     columns: list[dict] = field(default_factory=list)
+    problems: list[str] = field(default_factory=list)
 
     def as_dict(self) -> dict:
         return asdict(self)
@@ -68,6 +79,36 @@ def _describe(d: dict) -> dict:
     return {**{k: d[k] for k in keep}, "valid_ratio": round(d["valid_ratio"], 4)}
 
 
+def gid_problems(gids: list[str | None]) -> list[str]:
+    """Check each GID row, with the rules of `gsq check`: empty, invalid, duplicate, mixed level.
+
+    Returns one line per bad row. An empty list means the column passes.
+    """
+    problems: list[str] = []
+    rows_by_gid: dict[str, list[int]] = {}
+    levels: dict[int, list[int]] = {}
+    for row, gid in enumerate(gids, start=1):
+        if gid is None:
+            problems.append(f"row {row}: GID is empty")
+            continue
+        try:
+            level, _, _ = gs.decode(gid)
+        except ValueError:
+            problems.append(f"row {row}: invalid GID {gid!r}")
+            continue
+        rows_by_gid.setdefault(gid, []).append(row)
+        levels.setdefault(level, []).append(row)
+    for gid, rows in rows_by_gid.items():
+        if len(rows) > 1:
+            problems.append(f"duplicate GID {gid}: rows {', '.join(map(str, rows))}")
+    if len(levels) > 1:
+        first = min(levels, key=lambda lv: levels[lv][0])
+        for level, rows in levels.items():
+            if level != first:
+                problems.extend(f"row {row}: level {level}, the first GID is level {first}" for row in rows)
+    return problems
+
+
 def analyse(data: bytes, *, confirm_digit_gid: bool = False) -> ImportReport:
     """Find the one key column. Report it, or say why there is none."""
     cols = read_csv(data)
@@ -93,6 +134,12 @@ def analyse(data: bytes, *, confirm_digit_gid: bool = False) -> ImportReport:
         return ImportReport(False, rows, key["column"], key["kind"], None, key["status"], key["reason"], described)
     if key["status"] not in _ACCEPTED | {STATUS_NEEDS_CONFIRMATION}:
         return ImportReport(False, rows, key["column"], key["kind"], None, key["status"], key["reason"], described)
+    if key["kind"] == KIND_GID:
+        problems = gid_problems(cols[key["column"]])
+        if problems:
+            reason = f"{len(problems)} row problem(s), first: {problems[0]}"
+            return ImportReport(False, rows, key["column"], key["kind"], None, "invalid_rows", reason, described,
+                                problems[:MAX_PROBLEMS])
     if len(key["levels"]) != 1:
         return ImportReport(False, rows, key["column"], key["kind"], None, "mixed_levels",
                             f"column mixes levels {key['levels']}; one level per file", described)

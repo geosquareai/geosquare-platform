@@ -90,7 +90,7 @@ def test_key_column_is_stored_as_gid_and_extra_columns_are_reported(registry, tm
 
 def test_duplicate_gid_is_rejected_and_nothing_is_written(registry, tmp_path):
     data = csv([(cell(10), "0.25", "A"), (cell(10), "0.5", "B")])
-    with pytest.raises(CellDatasetError, match="duplicate"):
+    with pytest.raises(ImportRejected, match="duplicate GID"):
         store_csv(registry, tmp_path, data, value_fields=[NUMERIC, CATEGORY], governance=GOVERNANCE)
     assert list(tmp_path.iterdir()) == []
 

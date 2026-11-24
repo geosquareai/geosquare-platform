@@ -34,7 +34,7 @@ from geosquare_v2.crs import wgs84_to_grid_transformer
 from geosquare_v2.errors import GeosquareError
 from pyproj.enums import TransformDirection
 
-from .importer import ImportRejected, analyse, read_csv
+from .importer import ImportRejected, RowsRejected, analyse, read_csv
 
 DOMAIN = "ID"
 REGISTRY_VERSION = "2.0.0"  # the registry loader accepts only this version
@@ -414,6 +414,8 @@ def store_csv(
     """
     report = analyse(data, confirm_digit_gid=confirm_digit_gid)
     if not report.ok:
+        if report.problems:
+            raise RowsRejected(f"{report.status}: {report.reason}", report.problems)
         raise ImportRejected(f"{report.status}: {report.reason}")
 
     columns = read_csv(data)
