@@ -33,7 +33,7 @@ export function levelForZoom(zoom) {
  *   equal weight 1 (all cells at one level have the same area). Weighted rules need a weight.
  *   Other rules take none.
  *
- * A parent with no usable value is `null`. `median` needs at least 3 values, and
+ * A parent with no usable value is `null`. `median` needs at least 3 values, and returns `null` below that.
  */
 export function rollupToLevel(rows, level, rules) {
   if (!Number.isInteger(level) || level < 0) throw new Error(`level must be a whole number, got ${level}`);
