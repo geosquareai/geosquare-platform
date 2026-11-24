@@ -688,7 +688,12 @@ def _catalog_entries() -> list[dict[str, Any]]:
     for path, dataset_id, version in _catalog_sources():
         entry = _catalog_entry(path, dataset_id)
         if version is not None:
-            entry = {**entry, "name": dataset_id, "version": version}
+            entry = {
+                **entry,
+                "name": dataset_id,
+                "version": version,
+                "read_path": f"/named/{dataset_id}/versions/{version}",
+            }
         entries.append(entry)
     return entries
 

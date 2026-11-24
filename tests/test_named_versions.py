@@ -103,6 +103,8 @@ def test_catalog_lists_latest_named_version_and_legacy(client):
     assert len(named) == 1
     assert named[0]["dataset_id"] == "kyl-share" and named[0]["version"] == 2
     assert named[0]["row_count"] == 3
+    assert named[0]["read_path"] == "/named/kyl-share/versions/2"
+    assert client.get(named[0]["read_path"]).status_code == 200
     assert [row["dataset_id"] for row in rows if "name" not in row] == [legacy]
 
     gid_only_in_v2 = gs.encode(9, 13, 3)
@@ -150,3 +152,23 @@ def test_concurrent_uploads_to_one_name_get_201_or_409_and_no_overwrite(client):
     listing = client.get("/named/kyl-share/versions").json()
     assert sorted(item["version"] for item in listing["versions"]) == sorted(created)
     assert len({item["content_sha256"] for item in listing["versions"]}) == len(created)
+
+
+def test_identical_concurrent_uploads_store_one_version(client):
+    threads_count = 6
+    barrier = threading.Barrier(threads_count)
+    statuses: list[int] = []
+
+    def worker() -> None:
+        thread_client = TestClient(app, raise_server_exceptions=False)
+        barrier.wait()
+        statuses.append(upload(thread_client, V1).status_code)
+
+    threads = [threading.Thread(target=worker) for _ in range(threads_count)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert sorted(statuses) == [201] + [409] * (threads_count - 1)
+    assert [item["version"] for item in client.get("/named/kyl-share/versions").json()["versions"]] == [1]

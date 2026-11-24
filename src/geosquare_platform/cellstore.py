@@ -16,7 +16,9 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import random
 import re
+import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -42,7 +44,8 @@ DATASET_ID_PATTERN = re.compile(r"ID-L(\d{1,2})-[0-9a-f]{12}")
 NAMED_DIR = "named"  # versioned datasets: <data root>/named/<name>/v<N>
 NAME_PATTERN = re.compile(r"[a-z0-9][a-z0-9_-]{0,63}")
 _VERSION_FOLDER = re.compile(r"v([1-9]\d*)")
-_VERSION_TRIES = 5
+_VERSION_TRIES = 8
+_RETRY_BACKOFF_SECS = 0.02  # shortcut: fixed small jitter, not a lock; upgrade if 409s stay common
 SHARE_POLICIES = frozenset(("internal", "k_anon_only", "public"))
 REFRESH_RATES = frozenset(("once", "daily", "weekly", "monthly", "yearly", "irregular"))
 # Default rollup rule per semantics (docs/dataset-metadata.md, section 4). The uploader can change it.
@@ -495,9 +498,13 @@ def _write_next_version(root: Path, name: str, dataset: CellDataset, content_has
     """Write `dataset` as the next version of `name`.
 
     Two uploads can pick the same number. The second write then finds the folder taken and
-    fails, so it picks the next number and tries again. After `_VERSION_TRIES` losses it gives up.
+    fails. Before each attempt the content check runs again, so an identical racing upload
+    is refused (409) instead of stored twice. Each retry waits a short random time, so
+    racing uploads do not all retry at once. After `_VERSION_TRIES` losses it gives up (409).
     """
-    for _ in range(_VERSION_TRIES):
+    for attempt in range(_VERSION_TRIES):
+        if attempt:
+            time.sleep(random.uniform(0, _RETRY_BACKOFF_SECS * attempt))
         destination, number = _next_version(root, name, content_hash)
         destination.parent.mkdir(parents=True, exist_ok=True)
         try:
