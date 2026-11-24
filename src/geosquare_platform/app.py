@@ -20,10 +20,13 @@ from geosquare_engine.compact import contains
 from .coverage import COVERAGE_DIR, compact_coverage
 from .cellstore import (
     DATASET_ID_PATTERN,
+    NAME_PATTERN,
+    NAMED_DIR,
     DatasetExists,
     Governance,
     ValueField,
     is_stale,
+    list_versions,
     parse_governance,
     parse_value_fields,
     read_dataset,
@@ -123,6 +126,7 @@ async def create_dataset(
     source_name: str | None = Form(None),
     refresh: str | None = Form(None, description="once (default), daily, weekly, monthly, yearly or irregular."),
     confirm_digit_gid: bool = False,
+    name: str | None = Form(None, description="Optional. Upload as the next version of this name."),
 ) -> dict:
     """Detect the GID column and level, check every row, and store the cells with a manifest."""
     try:
@@ -142,12 +146,67 @@ async def create_dataset(
             value_fields=parse_value_fields(raw),
             governance=governance,
             confirm_digit_gid=confirm_digit_gid,
+            name=name,
         )
     except DatasetExists as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except (ImportRejected, GeosquareError) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return stored.summary()
+
+
+def _named_versions(name: str) -> list[tuple[int, Path]]:
+    if not NAME_PATTERN.fullmatch(name):
+        raise HTTPException(status_code=404, detail="no such dataset")
+    versions = list_versions(data_root(), name)
+    if not versions:
+        raise HTTPException(status_code=404, detail="no such dataset")
+    return versions
+
+
+def _read_named(name: str, version: int | None) -> dict:
+    versions = _named_versions(name)
+    if version is None:
+        number, path = versions[-1]
+    else:
+        match = [item for item in versions if item[0] == version]
+        if not match:
+            raise HTTPException(status_code=404, detail="no such version")
+        number, path = match[0]
+    try:
+        body = read_dataset(load_registry(), path)
+    except GeosquareError as exc:
+        raise HTTPException(status_code=422, detail=f"dataset fails validation: {exc}") from exc
+    return {**body, "dataset_id": name, "name": name, "version": number}
+
+
+@app.get("/named/{name}")
+def get_named_latest(name: str) -> dict:
+    """The latest version of a named dataset, checked the same way as a dataset by ID."""
+    return _read_named(name, None)
+
+
+@app.get("/named/{name}/versions")
+def list_named_versions(name: str) -> dict:
+    versions = _named_versions(name)
+    rows = []
+    for number, path in versions:
+        manifest = _read_catalog_manifest(path)
+        rows.append(
+            {
+                "version": number,
+                "level": manifest["level"],
+                "rows": manifest["storage"]["row_count"],
+                "content_sha256": manifest["storage"]["data_files"][0]["content_sha256"],
+                "created_at": manifest["provenance"]["created_at"],
+            }
+        )
+    return {"name": name, "latest": versions[-1][0], "versions": rows}
+
+
+@app.get("/named/{name}/versions/{version}")
+def get_named_version(name: str, version: int) -> dict:
+    return _read_named(name, version)
 
 
 @app.get("/datasets/{dataset_id}")
@@ -541,7 +600,7 @@ def _catalog_dataset_paths() -> list[Path]:
     if not root.is_dir():
         return []
     return sorted(
-        (path for path in root.iterdir() if path.is_dir() and path.name not in {"crosswalks", COVERAGE_DIR}),
+        (path for path in root.iterdir() if path.is_dir() and path.name not in {"crosswalks", COVERAGE_DIR, NAMED_DIR}),
         key=lambda path: path.name,
     )
 

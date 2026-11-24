@@ -19,6 +19,9 @@ Kode error yang sering muncul:
 | POST | `/import/analyse` | publik | Cek CSV, tanpa menyimpan |
 | POST | `/datasets` | publik | Simpan CSV sebagai dataset sel |
 | GET | `/datasets/{id}` | publik | Baca lagi dataset dan cek manifest |
+| GET | `/named/{name}` | publik | Baca versi terbaru dari nama dataset |
+| GET | `/named/{name}/versions` | publik | Daftar versi dengan hash isi |
+| GET | `/named/{name}/versions/{version}` | publik | Baca satu versi persis |
 | GET | `/datasets/{id}/export` | publik | Export dengan k-anonymity |
 | GET | `/datasets/{id}/cells` | publik | Sel dalam kotak WGS 84 |
 | GET | `/catalog` | publik | Daftar dataset dari manifest. Filter `bbox` (kotak) dan `gid` (cakupan tepat) |
@@ -63,6 +66,7 @@ Form:
 | `share_policy` | **Wajib.** `internal`, `k_anon_only`, atau `public`. Upload tanpa ini ditolak (422). |
 | `owner`, `title`, `source_name` | Opsional. Teks untuk katalog. |
 | `refresh` | Opsional. `once` (default), `daily`, `weekly`, `monthly`, `yearly`, atau `irregular`. Dipakai untuk badge basi di katalog. |
+| `name` | Opsional. Upload dengan nama ini jadi versi berikutnya (lihat "Versi dataset"). Tanpa nama, dataset disimpan seperti biasa. |
 
 Setiap item di `value_fields` punya:
 
@@ -82,6 +86,18 @@ Jawaban 201 berisi `dataset_id`, `level`, `rows`, `unique_cells`, `value_fields`
 ### GET /datasets/{dataset_id}
 
 Baca dataset lagi dan cek manifest-nya. Jawaban berisi manifest lengkap. Jika cek gagal, jawabannya 422.
+
+### Versi dataset (L18)
+
+Upload dengan `name` yang sudah ada membuat versi baru (`v2`, `v3`, dan seterusnya). Versi lama tidak ditimpa.
+
+- Isi yang sama persis dengan salah satu versi (hash `content_sha256` sama) ditolak dengan 409.
+- `GET /named/{name}` memberi versi terbaru. `GET /named/{name}/versions/{version}` memberi satu versi, lengkap dengan manifest dan hash-nya.
+- `GET /named/{name}/versions` memberi daftar versi. Jika nama tidak ada, jawabannya 404.
+- Dataset tanpa nama tetap bisa dibaca lewat `/datasets/{dataset_id}`. Tidak ada yang berubah untuk dataset lama.
+- Nama: 1 sampai 64 karakter, huruf kecil, angka, `_` atau `-`, mulai dengan huruf atau angka.
+
+Shortcut: dua upload bersamaan dengan nama sama bisa dapat nomor versi yang sama. Belum dikunci. Upgrade jika ada upload paralel.
 
 ### GET /catalog
 
