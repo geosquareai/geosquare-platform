@@ -100,6 +100,7 @@ An upload with a `name` that already exists creates a new version (`v2`, `v3`, a
 - `GET /named/{name}` returns the latest version. `GET /named/{name}/versions/{version}` returns one version, with its manifest and hash.
 - `GET /named/{name}/versions` returns the list of versions. If the name does not exist, the response is 404.
 - A dataset without a name can still be read with `/datasets/{dataset_id}`. Nothing changes for old datasets.
+- Known limit: the routes that take a dataset ID (`/datasets/{id}/cells`, `/parquet`, `/rollup`, `/export`, `/coverage`) and the map do not find a named dataset yet. They answer 404 for a name. Use an upload without a name for those, or read the named version through `/named/...`.
 - Name: 1 to 64 characters, lowercase letters, digits, `_` or `-`, starting with a letter or digit.
 - Uploads with the same name at the same time do not overwrite each other. If two uploads pick the same version number, the loser tries the next number (up to 5 times). If it still loses, the response is 409, and that upload can be retried. A race like this never returns 500.
 - Only folders with a canonical version number are counted: `v1`, `v2`, and so on. Folders such as `v0` or `v01` are ignored.

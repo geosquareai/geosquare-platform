@@ -85,6 +85,7 @@ Also see [CONTRIBUTING.md](CONTRIBUTING.md) and [SECURITY.md](SECURITY.md).
 - One Parquet file per dataset. Partitions are not built yet.
 - The cell profile supports only the ID domain.
 - Storage is local only. S3 storage is not built yet.
+- Named datasets (versions) are not found by the ID routes (`/datasets/{id}/cells`, `/parquet`, `/rollup`, `/export`, `/coverage`) or by the map. Use `/named/...` to read them.
 - `/datasets/{id}/cells` and `/cells/{gid}/profile` are public. They return values per cell. They do not check `share_policy`, so do not expose a server with private datasets.
 - The map loads maplibre and hyparquet from CDNs, so the browser needs internet access.
 
@@ -149,3 +150,4 @@ Jangan isi `GSQ_INTERNAL_ROUTES=1` di server yang bisa diakses publik. Gerbang i
 - Domain yang didukung di profil sel hanya ID.
 - Penyimpanan hanya lokal. Penyimpanan S3 belum ada.
 - `/datasets/{id}/cells` dan `/cells/{gid}/profile` bersifat publik. Keduanya mengembalikan nilai per sel dan belum memeriksa `share_policy`.
+- Dataset bernama (versi) belum ditemukan oleh rute berbasis ID dan peta. Pakai `/named/...` untuk membacanya.
