@@ -95,6 +95,8 @@ uv run --extra test pytest -q tests/test_raster_cells.py
 
 Tanpa `GSQ_DUCKDB_EXTENSION`, fungsi menolak dengan pesan yang jelas. Tes referensi akan dilewati.
 
+**Versi engine yang wajib:** extension harus dibuild dari commit engine `7e6da90` atau lebih baru (branch `feat/phase5-engine-bundle`, PR #41 belum di-merge ke `main`). Commit itu memperbaiki `read_raster` agar hanya mengembalikan piksel yang titik tengahnya di dalam bbox. Extension dari `main` akan memberi piksel di luar bbox di tepi, sehingga sel tepi salah. Extension harus untuk DuckDB 1.5.0.
+
 Sengaja tidak ada rute HTTP. Input-nya path file di server, jadi rute seperti itu bisa membaca file sembarang.
 
 ## Notebook starter (L19)

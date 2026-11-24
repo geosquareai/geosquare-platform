@@ -6,7 +6,8 @@ as the hazard tables were built. The cells go through `store_csv`, so the same c
 apply as for any CSV upload.
 
 `read_raster` lives in the engine's DuckDB extension, which is not on PyPI. Set
-`GSQ_DUCKDB_EXTENSION` to a built `geosquare_v2.duckdb_extension` (DuckDB 1.5.x).
+`GSQ_DUCKDB_EXTENSION` to a built `geosquare_v2.duckdb_extension` (DuckDB 1.5.x). It must come from
+engine commit 7e6da90 or newer (PR #41, not on engine main yet): older builds keep pixels outside the bbox.
 
 shortcut: a cell on the edge of the bbox gets the mean of the pixels inside the bbox only.
 Cut the raster to the area first. Upgrade with a share_in_aoi column when edges matter.
