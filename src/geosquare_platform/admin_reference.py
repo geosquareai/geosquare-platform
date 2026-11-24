@@ -18,7 +18,7 @@ Usage:
     python -m geosquare_platform.admin_reference SOURCE.parquet OUT.parquet \\
         --source-name "BIG village boundaries" --license "CC-BY 4.0" \\
         [--village-column kode_desa] [--district-column kode_kec] \\
-        [--regency-column kode_kota] [--province-column kode_prov] [--level 12]
+        [--regency-column kode_kota] [--province-column kode_prov] [--level 11]
 """
 
 from __future__ import annotations
@@ -41,7 +41,7 @@ from .registry import load_registry
 
 FORMAT_VERSION = "1.0"
 DOMAIN_CODE = "ID"
-DEFAULT_LEVEL = 12
+DEFAULT_LEVEL = 11  # K14 in plan/04-risiko-dan-keputusan.md: 11 (100 m), same as the Jakarta Barat crosswalk
 # shortcut: 200 by 200 cells per tile keeps each polyfill under geosquare_v2's 100 000 candidate limit. Upgrade if that limit changes.
 TILE_CELLS = 200
 # Relative area error allowed per admin unit (same tolerance as polygon_crosswalk_rows).
@@ -108,6 +108,8 @@ def build_reference(
     """
     if not any(admin_columns.get(key) for key in CODE_COLUMNS[:3]):
         raise ValueError("give at least one of village, district or regency column")
+    if not source_name.strip() or not license_name.strip():
+        raise ValueError("source_name and license_name are required; never leave them empty")
     table = pq.read_table(source)
     needed = [geometry_column, *[col for col in admin_columns.values() if col]]
     missing = [name for name in needed if name not in table.column_names]
@@ -213,7 +215,7 @@ def main(argv=None) -> int:
     parser.add_argument("--district-column")
     parser.add_argument("--regency-column")
     parser.add_argument("--province-column")
-    parser.add_argument("--level", type=int, default=DEFAULT_LEVEL, help="GID level (12 = 50 m)")
+    parser.add_argument("--level", type=int, default=DEFAULT_LEVEL, help="GID level (11 = 100 m, 12 = 50 m)")
     parser.add_argument("--source-name", required=True, help="boundary source, written to the metadata")
     parser.add_argument("--license", dest="license_name", required=True, help="licence of the boundary data")
     args = parser.parse_args(argv)

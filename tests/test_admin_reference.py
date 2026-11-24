@@ -140,6 +140,34 @@ def test_overlapping_units_are_rejected(tmp_path):
         )
 
 
+def test_empty_source_or_licence_is_rejected(tmp_path):
+    source = _write(tmp_path / "boundary.parquet", VILLAGES)
+    admin = {"village_code": "village_code", "regency_code": "regency_code"}
+    for source_name, license_name in [("", "CC-BY"), ("  ", "CC-BY"), ("BIG", ""), ("BIG", " ")]:
+        with pytest.raises(ValueError, match="required"):
+            build_reference(
+                source,
+                tmp_path / "out.parquet",
+                admin_columns=admin,
+                source_name=source_name,
+                license_name=license_name,
+            )
+    assert not (tmp_path / "out.parquet").exists()
+
+
+def test_default_level_is_11(tmp_path):
+    source = _write(tmp_path / "boundary.parquet", VILLAGES)
+    out = tmp_path / "out.parquet"
+    build_reference(
+        source,
+        out,
+        admin_columns={"village_code": "village_code", "regency_code": "regency_code"},
+        source_name="synthetic",
+        license_name="test only",
+    )
+    assert pq.read_schema(out).metadata[b"level"] == b"11"
+
+
 def test_missing_column_is_rejected(tmp_path):
     source = _write(tmp_path / "boundary.parquet", VILLAGES)
     with pytest.raises(ValueError, match="no columns"):
