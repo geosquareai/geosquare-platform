@@ -4,7 +4,7 @@ This page covers two things. It explains how export protects anonymity. It also 
 
 ## K-anonymity export
 
-Export publishes only grouped counts. Every cell in the result has a `count` of at least `k`.
+Export returns cells whose `count` is at least `k`. Cells below `k` merge into their parent. Export does not check `share_policy` today.
 
 How it works (see `src/geosquare_platform/export.py`):
 
@@ -19,6 +19,7 @@ Rules for `k`:
 
 - Default: 5.
 - Minimum: 2. A value below 2 is rejected.
+- The `k` value is set per request, so it is configurable. A higher default is under review.
 - Team decision: the default of 5 and the minimum of 2 are accepted. No Indonesian legal rule is available as a reference for this value.
 
 ## Internal routes
@@ -40,6 +41,7 @@ Important notes:
 - The gate only checks an environment variable. It is not a login, and there is no user check.
 - A server that sets `GSQ_INTERNAL_ROUTES=1` must stay private. For example, run it on an internal network or behind a proxy with authentication.
 - Public export still goes through k-anonymity. Internal routes do not.
+- Export does not check `share_policy` today, so it is not a privacy gate for internal data.
 
 ## Public routes that are not gated
 
@@ -49,18 +51,21 @@ These routes return values per cell. They are public, and `GSQ_INTERNAL_ROUTES` 
 |---|---|---|
 | `GET /datasets/{id}/cells` | Cell values inside a box, up to `limit` (default 1000) | Does not check `share_policy` |
 | `GET /cells/{gid}/profile` | Values of one cell and its parent | Does not check `share_policy` |
+| `GET /datasets/{id}/export` | Cells with count at least `k` | Public. Does not check `share_policy` |
 
-A dataset with `share_policy` set to `internal` can still be read through these routes. Until the code checks `share_policy` on these routes, do not expose a server that holds internal datasets.
+A dataset with `share_policy` set to `internal` can still be read through these routes. Until the code checks `share_policy` on these routes, do not upload data you cannot make public to a server that others can reach.
 
 ## Risks
 
 - With k = 2, one person in a small cell can be identified if a total column is also exported. Keep the output internal.
 - Repeated queries can narrow down a cell. Limit queries, or publish fixed releases.
 - Mobile data and 50 m demographic data are team assets. Do not release them through export or public routes.
-- Dukcapil data has no public license yet. Do not use it in a paid product until written permission exists.
+- Dukcapil data has no public license yet. Do not use it in a paid product until written permission exists. Source: internal agreement, ask the owner.
 
 ---
 
 ## Ringkasan Bahasa Indonesia
 
-Export publik memakai k-anonymity: setiap sel hasil punya hitungan minimal `k` (default 5, minimal 2). Sel di bawah `k` digabung ke induknya, lalu sisanya ditekan dan dicatat. Rute internal (rollup, parquet, join) hanya aktif dengan `GSQ_INTERNAL_ROUTES=1`. Rute publik `/datasets/{id}/cells` dan `/cells/{gid}/profile` mengembalikan nilai per sel dan belum memeriksa `share_policy`, jadi server dengan data internal jangan dibuka ke publik.
+Bagian ini adalah ringkasan. Versi lengkap ada di bagian Inggris di atas.
+
+Export publik memakai k-anonymity: sel hasil punya hitungan minimal `k` (default 5, minimal 2). Nilai `k` bisa diatur per permintaan. Default yang lebih tinggi sedang ditinjau. Sel di bawah `k` digabung ke induknya. Rute internal (rollup, parquet, join) hanya aktif dengan `GSQ_INTERNAL_ROUTES=1`. Rute publik `/datasets/{id}/cells`, `/cells/{gid}/profile`, dan `/datasets/{id}/export` belum memeriksa `share_policy`. Jadi jangan unggah data yang tidak boleh dibagikan ke server yang bisa diakses orang lain.
