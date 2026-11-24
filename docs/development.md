@@ -96,3 +96,14 @@ uv run --extra test pytest -q tests/test_raster_cells.py
 Tanpa `GSQ_DUCKDB_EXTENSION`, fungsi menolak dengan pesan yang jelas. Tes referensi akan dilewati.
 
 Sengaja tidak ada rute HTTP. Input-nya path file di server, jadi rute seperti itu bisa membaca file sembarang.
+
+## Notebook starter (L19)
+
+`notebooks/starter.ipynb` memuat dataset contoh di `notebooks/sample/`, dirollup dengan `df.gsq`, menggambar peta, lalu mengekspor CSV. Jalankan dari folder `notebooks` dengan membuka notebook dan menjalankan semua sel dari atas ke bawah:
+
+```zsh
+uv sync --extra test --extra notebook
+cd notebooks
+```
+
+Notebook ini butuh `df.gsq` dari engine (main setelah PR #39). Rilis PyPI 0.2.0 belum punya fitur ini.
