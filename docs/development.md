@@ -80,3 +80,19 @@ cp -R ../geosquare-engine/bindings/wasm/pkg web/map/pkg
 `web/map/js/rollup.mjs` adalah salinan dari `geosquare-engine/bindings/wasm/js/rollup.mjs`. Jaga agar tetap sama dengan engine.
 
 Rute `GET /datasets/{id}/parquet` hanya aktif dengan `GSQ_INTERNAL_ROUTES=1`, karena file-nya berisi nilai per sel. Tanpa flag itu, peta memakai rute `/cells`.
+
+## Raster ke sel (L14)
+
+`raster_to_cells` di `src/geosquare_platform/raster.py` membaca GeoTIFF atau COG dengan `read_raster` dari engine. Nilai tiap sel adalah rata-rata piksel yang titik tengahnya ada di dalam bbox.
+
+Fungsi ini butuh extension DuckDB dari engine (belum ada di PyPI). Build dulu di `geosquare-engine/bindings/duckdb`, lalu:
+
+```zsh
+export GSQ_DUCKDB_EXTENSION=/path/to/geosquare_v2.duckdb_extension
+uv sync --extra test
+uv run --extra test pytest -q tests/test_raster_cells.py
+```
+
+Tanpa `GSQ_DUCKDB_EXTENSION`, fungsi menolak dengan pesan yang jelas. Tes referensi akan dilewati.
+
+Sengaja tidak ada rute HTTP. Input-nya path file di server, jadi rute seperti itu bisa membaca file sembarang.
