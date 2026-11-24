@@ -86,7 +86,7 @@ Also see [CONTRIBUTING.md](CONTRIBUTING.md) and [SECURITY.md](SECURITY.md).
 - The cell profile supports only the ID domain.
 - Storage is local only. S3 storage is not built yet.
 - Named datasets (versions) are not found by the ID routes (`/datasets/{id}/cells`, `/parquet`, `/rollup`, `/export`, `/coverage`) or by the map. Use `/named/...` to read them.
-- `/datasets/{id}/cells` and `/cells/{gid}/profile` are public. They return values per cell. They do not check `share_policy`, so do not expose a server with private datasets.
+- `/datasets/{id}/cells`, `/cells/{gid}/profile` and `/datasets/{id}/export` are public. They do not check `share_policy` today. Do not upload data you cannot make public to a server that others can reach.
 - The map loads maplibre and hyparquet from CDNs, so the browser needs internet access.
 
 ## License
@@ -97,11 +97,13 @@ Apache-2.0. See [LICENSE](LICENSE).
 
 ## Bahasa Indonesia
 
+Bagian ini adalah ringkasan. Versi lengkap ada di bagian Inggris di atas.
+
 Server API untuk dataset sel GeoSquare. Platform ini menerima CSV, memeriksa setiap baris, menyimpan hasilnya sebagai dataset sel, lalu menjawab query dan export.
 
 Platform ini memakai dua paket inti:
 
-- `geosquare-engine` (0.3.0 atau lebih baru, dari PyPI) untuk hitung grid, seperti GID, level, dan deteksi kolom.
+- `geosquare-engine` (0.3.x, dari PyPI) untuk hitung grid, seperti GID, level, dan deteksi kolom.
 - `geosquare-v2` (1.3.0) untuk format dataset, manifest, dan aturan spec.
 
 Platform tidak menulis ulang aturan grid. Semua aturan ada di dua paket itu.
@@ -142,12 +144,12 @@ Jangan isi `GSQ_INTERNAL_ROUTES=1` di server yang bisa diakses publik. Gerbang i
 2. Format dan validasi dataset lewat `geosquare-v2`.
 3. Nilai tidak pernah diubah diam-diam. Baris yang salah membuat upload gagal, dan pesannya menyebut nomor baris.
 4. Manifest mencatat versi profil, versi registry, dan versi library yang menulis dataset.
-5. Dataset tidak pernah ditimpa. Upload yang sama untuk kedua kalinya dapat 409.
+5. Dataset tidak pernah ditimpa. Upload yang sama untuk kedua kalinya akan menjawab 409.
 
 ### Batasan saat ini
 
 - Satu file Parquet per dataset. Partisi belum dibuat.
 - Domain yang didukung di profil sel hanya ID.
 - Penyimpanan hanya lokal. Penyimpanan S3 belum ada.
-- `/datasets/{id}/cells` dan `/cells/{gid}/profile` bersifat publik. Keduanya mengembalikan nilai per sel dan belum memeriksa `share_policy`.
+- `/datasets/{id}/cells`, `/cells/{gid}/profile`, dan `/datasets/{id}/export` bersifat publik. Ketiganya belum memeriksa `share_policy`. Jangan unggah data yang tidak boleh dibagikan ke server yang bisa diakses orang lain.
 - Dataset bernama (versi) belum ditemukan oleh rute berbasis ID dan peta. Pakai `/named/...` untuk membacanya.

@@ -23,7 +23,7 @@ Common error codes:
 | GET | `/named/{name}` | public | Read the latest version of a dataset name |
 | GET | `/named/{name}/versions` | public | List versions with their content hash |
 | GET | `/named/{name}/versions/{version}` | public | Read one exact version |
-| GET | `/datasets/{id}/export` | public | Export with k-anonymity |
+| GET | `/datasets/{id}/export` | public | Export with k-anonymity. Does not check `share_policy` today |
 | GET | `/datasets/{id}/cells` | public | Cells whose centre is inside a WGS 84 box |
 | GET | `/catalog` | public | List datasets from manifests. Filters `bbox` (box) and `gid` (exact coverage) |
 | GET | `/datasets/{id}/coverage` | public | Exact coverage of a dataset: a compact cell set |
@@ -41,7 +41,7 @@ Common error codes:
 
 Routes marked "internal" answer 404 unless `GSQ_INTERNAL_ROUTES=1`.
 
-Routes marked "public" that return values per cell (`/datasets/{id}/cells`, `/cells/{gid}/profile`) are not behind that flag. They also do not check `share_policy` today.
+Routes marked "public" that return values per cell (`/datasets/{id}/cells`, `/cells/{gid}/profile`, `/datasets/{id}/export`) are not behind that flag. None of these three checks `share_policy` today. Do not upload data you cannot make public to a server that others can reach.
 
 ## Cell datasets
 
@@ -310,4 +310,4 @@ Response: `matched_rows`, `sums`, `relation`, `left_id`, and `right_id`.
 
 ## Ringkasan Bahasa Indonesia
 
-Halaman ini berisi semua endpoint platform: parameter, contoh, dan jawaban. Rute bertanda "internal" hanya aktif dengan `GSQ_INTERNAL_ROUTES=1`. Rute publik `/datasets/{id}/cells` dan `/cells/{gid}/profile` mengembalikan nilai per sel dan belum memeriksa `share_policy`.
+Halaman ini berisi semua endpoint platform: parameter, contoh, dan jawaban. Rute bertanda "internal" hanya aktif dengan `GSQ_INTERNAL_ROUTES=1`. Rute publik `/datasets/{id}/cells` dan `/cells/{gid}/profile` mengembalikan nilai per sel dan belum memeriksa `share_policy`. Export publik juga belum memeriksa `share_policy`.
