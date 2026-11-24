@@ -94,8 +94,10 @@ Flag wajib: `SOURCE`, `OUT`, `--source-name`, dan `--license`. Keduanya tidak bo
 
 Kolom output: `gid`, `village_code`, `district_code`, `regency_code`, `province_code`, dan `area_weight`.
 
-- `area_weight` = luas irisan unit dengan sel dibagi luas sel. Sel di dalam unit punya bobot 1.
-- Jumlah `area_weight` per `gid` tidak boleh lebih dari 1. Lebih dari 1 berarti unit admin saling tumpang tindih, dan alat berhenti.
+- `area_weight` = luas irisan unit dengan sel dibagi luas sel.
+- Jumlah `area_weight` per `gid` = bagian sel yang tertutup unit admin. Nilainya paling besar 1. Nilainya tepat 1 kalau sel tertutup penuh, dan kurang dari 1 untuk sel di tepi wilayah. Jangan asumsikan semua sel berjumlah 1.
+- Unit admin tidak boleh tumpang tindih. Alat membandingkan total luas unit dengan luas gabungannya. Kalau ada tumpang tindih, alat berhenti dan tidak menulis file.
+- Input harus WGS 84 lon/lat (EPSG:4326). Koordinat di luar rentang derajat ditolak.
 - Jika `province_code` tidak diisi, alat memakai dua digit pertama dari kode kabupaten/kota.
 - Alat memakai builder poligon dari `geosquare-v2`. Setiap unit dipotong per tile 20 km (level 11, 200 x 200 sel) karena builder menolak lebih dari 100.000 sel kandidat.
 

@@ -168,6 +168,33 @@ def test_default_level_is_11(tmp_path):
     assert pq.read_schema(out).metadata[b"level"] == b"11"
 
 
+def test_overlap_inside_one_cell_is_rejected(tmp_path):
+    # Two identical ~40 m squares. Their overlap sits inside one 100 m cell, so the cell's weight sum stays below 1.
+    square = box(106.8000, -6.2000, 106.80036, -6.19964)
+    source = _write(tmp_path / "overlap.parquet", {"3171010001": square, "3171010009": square})
+    with pytest.raises(ValueError, match="overlap"):
+        build_reference(
+            source,
+            tmp_path / "out.parquet",
+            admin_columns={"village_code": "village_code", "regency_code": "regency_code"},
+            source_name="x",
+            license_name="x",
+        )
+    assert not (tmp_path / "out.parquet").exists()
+
+
+def test_metre_coordinates_are_rejected_with_wgs84_message(tmp_path):
+    source = _write(tmp_path / "utm.parquet", {"3171010001": box(700000, 9300000, 700500, 9300500)})
+    with pytest.raises(ValueError, match="WGS 84 lon/lat"):
+        build_reference(
+            source,
+            tmp_path / "out.parquet",
+            admin_columns={"village_code": "village_code", "regency_code": "regency_code"},
+            source_name="x",
+            license_name="x",
+        )
+
+
 def test_missing_column_is_rejected(tmp_path):
     source = _write(tmp_path / "boundary.parquet", VILLAGES)
     with pytest.raises(ValueError, match="no columns"):

@@ -2,13 +2,19 @@
 
 One row per (cell, admin unit) pair:
 
-- gid: the GeoSquare cell at the chosen level (default 12, 50 m).
+- gid: the GeoSquare cell at the chosen level (default 11, 100 m).
 - village_code, district_code, regency_code, province_code: admin codes of the unit.
 - area_weight: overlap area of the unit with the cell, divided by the cell area.
 
-A user joins a cell table on ``gid`` and groups by any admin code. Each cell's
-weights sum to at most 1. They sum to 1 when the cell lies fully inside the
-admin units. A village's weights, times the cell area, add up to its polygon area.
+Spec: for each gid, the sum of ``area_weight`` is the share of the cell covered by
+admin units. It is at most 1, and exactly 1 when the cell is fully covered. It is
+below 1 for cells on the edge of the covered area. Units must not overlap: the
+builder checks that the sum of unit areas equals the area of their union.
+
+A user joins a cell table on ``gid`` and groups by any admin code. A village's
+weights, times the cell area, add up to its polygon area.
+
+Input: WGS 84 lon/lat polygons only. Other coordinates are rejected.
 
 Overlap areas come from ``geosquare_v2.crosswalk.polygon_crosswalk_rows``, the same
 builder as the crosswalk tool. Each unit is cut into tiles first, because the
@@ -48,6 +54,8 @@ TILE_CELLS = 200
 AREA_TOLERANCE = 1e-6
 # Allowed sum of weights per cell above 1. Only float rounding is allowed.
 OVERLAP_TOLERANCE = 1e-9
+# Allowed overlap between units, as a share of their total area. Catches overlaps inside one cell.
+OVERLAP_AREA_TOLERANCE = 1e-9
 CODE_COLUMNS = ("village_code", "district_code", "regency_code", "province_code")
 
 
@@ -139,6 +147,7 @@ def build_reference(
     )
 
     seen_ids: set[str] = set()
+    geoms: list = []
     rows_written = 0
     max_area_error = 0.0
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -153,9 +162,19 @@ def build_reference(
                 raise ValueError(f"row {number}: admin code is empty or repeated: {unit_id!r}")
             seen_ids.add(unit_id)
 
-            geom = transform(to_grid.transform, wkb.loads(record[geometry_column]))
-            if not geom.is_valid or geom.is_empty:
-                raise ValueError(f"unit {unit_id}: geometry is empty or invalid; fix the source")
+            raw = wkb.loads(record[geometry_column])
+            if raw.is_empty:
+                raise ValueError(f"unit {unit_id}: geometry is empty; fix the source")
+            minx, miny, maxx, maxy = raw.bounds
+            if not (-180 <= minx and maxx <= 180 and -90 <= miny and maxy <= 90):
+                raise ValueError(
+                    f"unit {unit_id}: coordinates are outside WGS 84 lon/lat (x in -180..180, y in -90..90); "
+                    "reproject the source to WGS 84 (EPSG:4326) first"
+                )
+            geom = transform(to_grid.transform, raw)
+            if not geom.is_valid:
+                raise ValueError(f"unit {unit_id}: geometry is invalid; fix the source")
+            geoms.append(geom)
             overlaps = _unit_overlaps(unit_id, geom, grid, level, side_m)
             area_error = abs(sum(overlaps.values()) - geom.area) / geom.area
             max_area_error = max(max_area_error, area_error)
@@ -184,6 +203,11 @@ def build_reference(
     try:
         if rows_written == 0:
             raise ValueError("no admin unit produced cells")
+        # Overlap check: units must not share area. Shared edges leave only float error.
+        total_area = sum(geom.area for geom in geoms)
+        overlap_area = total_area - unary_union(geoms).area
+        if overlap_area > OVERLAP_AREA_TOLERANCE * total_area:
+            raise ValueError(f"admin units overlap by {overlap_area:.3f} m2; units must not share area")
         per_cell = pq.read_table(out, columns=["gid", "area_weight"]).group_by("gid").aggregate(
             [("area_weight", "sum")]
         ).column("area_weight_sum")
