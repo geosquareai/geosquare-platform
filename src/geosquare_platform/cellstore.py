@@ -39,6 +39,9 @@ REGISTRY_VERSION = "2.0.0"  # the registry loader accepts only this version
 MANIFEST_VERSION = "1.1"
 SPEC_VERSION = "2.0"
 DATASET_ID_PATTERN = re.compile(r"ID-L(\d{1,2})-[0-9a-f]{12}")
+NAMED_DIR = "named"  # versioned datasets: <data root>/named/<name>/v<N>
+NAME_PATTERN = re.compile(r"[a-z0-9][a-z0-9_-]{0,63}")
+_VERSION_FOLDER = re.compile(r"v(\d+)")
 SHARE_POLICIES = frozenset(("internal", "k_anon_only", "public"))
 REFRESH_RATES = frozenset(("once", "daily", "weekly", "monthly", "yearly", "irregular"))
 # Default rollup rule per semantics (docs/dataset-metadata.md, section 4). The uploader can change it.
@@ -125,9 +128,10 @@ class StoredDataset:
     unique_cells: int
     value_fields: tuple[str, ...]
     dropped_columns: tuple[str, ...]
+    version: int | None = None  # set only for a named upload
 
     def summary(self) -> dict[str, Any]:
-        return {
+        body = {
             "dataset_id": self.dataset_id,
             "level": self.level,
             "rows": self.rows,
@@ -136,6 +140,10 @@ class StoredDataset:
             "dropped_columns": list(self.dropped_columns),
             "valid": True,
         }
+        if self.version is not None:
+            body["name"] = self.dataset_id
+            body["version"] = self.version
+        return body
 
 
 def _text_or_none(value: Any, label: str) -> str | None:
@@ -394,8 +402,12 @@ def store_csv(
     confirm_digit_gid: bool = False,
     created_at: str | None = None,
     dataset_id: str | None = None,
+    name: str | None = None,
 ) -> StoredDataset:
-    """Detect the GID column, build the cell table, validate it, and write it under `root`."""
+    """Detect the GID column, build the cell table, validate it, and write it under `root`.
+
+    With `name`, the upload becomes the next version of that name (see `_next_version`).
+    """
     report = analyse(data, confirm_digit_gid=confirm_digit_gid)
     if not report.ok:
         raise ImportRejected(f"{report.status}: {report.reason}")
@@ -412,22 +424,31 @@ def store_csv(
         created_at=created_at or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
     )
 
-    # The id comes from the content, the value field list, and the level unless a
-    # caller supplies a validated id for an explicit derived dataset.
-    identity = hashlib.sha256(data + json.dumps([f.as_dict() for f in value_fields], sort_keys=True).encode())
-    generated_id = f"{DOMAIN}-L{report.level}-{identity.hexdigest()[:12]}"
-    if dataset_id is None:
-        dataset_id = generated_id
-    elif not DATASET_ID_PATTERN.fullmatch(dataset_id):
-        raise ImportRejected("dataset_id does not match the dataset ID pattern")
-    elif int(dataset_id.split("-L", 1)[1].split("-", 1)[0]) != report.level:
-        raise ImportRejected("dataset_id level does not match the uploaded GIDs")
-    destination = Path(root) / dataset_id
-    if destination.exists():
-        raise DatasetExists(f"dataset {dataset_id} already exists")
+    new_version: int | None = None
+    if name is not None:
+        # A named upload is a new version of that name. Same content as any version is refused.
+        if not NAME_PATTERN.fullmatch(name):
+            raise ImportRejected("name must be 1 to 64 characters: a-z, 0-9, _ or -, starting with a letter or digit")
+        dataset_id = name
+        destination, new_version = _next_version(root, name, manifest["storage"]["data_files"][0]["content_sha256"])
+    else:
+        # The id comes from the content, the value field list, and the level unless a
+        # caller supplies a validated id for an explicit derived dataset.
+        identity = hashlib.sha256(data + json.dumps([f.as_dict() for f in value_fields], sort_keys=True).encode())
+        generated_id = f"{DOMAIN}-L{report.level}-{identity.hexdigest()[:12]}"
+        if dataset_id is None:
+            dataset_id = generated_id
+        elif not DATASET_ID_PATTERN.fullmatch(dataset_id):
+            raise ImportRejected("dataset_id does not match the dataset ID pattern")
+        elif int(dataset_id.split("-L", 1)[1].split("-", 1)[0]) != report.level:
+            raise ImportRejected("dataset_id level does not match the uploaded GIDs")
+        destination = Path(root) / dataset_id
+        if destination.exists():
+            raise DatasetExists(f"dataset {dataset_id} already exists")
 
     # from_table validates the table and the manifest against the registry. write() is atomic.
     dataset = CellDataset.from_table(table, manifest, registry=registry)
+    destination.parent.mkdir(parents=True, exist_ok=True)
     dataset.write(destination)
     dropped = tuple(name for name in columns if name != report.key_column and name not in {f.name for f in value_fields})
     return StoredDataset(
@@ -438,7 +459,31 @@ def store_csv(
         unique_cells=table.num_rows,
         value_fields=tuple(f.name for f in value_fields),
         dropped_columns=dropped,
+        version=new_version,
     )
+
+
+def list_versions(root: Path, name: str) -> list[tuple[int, Path]]:
+    """Versions of a named dataset, oldest first. Each is `<root>/named/<name>/v<N>`."""
+    folder = Path(root) / NAMED_DIR / name
+    if not folder.is_dir():
+        return []
+    found = []
+    for path in folder.iterdir():
+        match = _VERSION_FOLDER.fullmatch(path.name)
+        if match and path.is_dir():
+            found.append((int(match.group(1)), path))
+    return sorted(found)
+
+
+def _next_version(root: Path, name: str, content_hash: str) -> tuple[Path, int]:
+    versions = list_versions(root, name)
+    for number, path in versions:
+        stored = json.loads((path / "manifest.json").read_text(encoding="utf-8"))
+        if stored["storage"]["data_files"][0]["content_sha256"] == content_hash:
+            raise DatasetExists(f"{name} version {number} already has this content")
+    number = versions[-1][0] + 1 if versions else 1
+    return Path(root) / NAMED_DIR / name / f"v{number}", number
 
 
 def read_dataset(registry: DomainRegistry, path: Path) -> dict[str, Any]:
