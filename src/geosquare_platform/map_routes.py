@@ -101,9 +101,19 @@ def map_page() -> FileResponse:
 @router.get("/map/pkg/{filename:path}")
 def map_package(filename: str) -> FileResponse:
     """Serve the locally copied, ignored WASM package files."""
-    candidate = (MAP_PACKAGE / filename).resolve()
+    return _map_file(MAP_PACKAGE, filename)
+
+
+@router.get("/map/js/{filename:path}")
+def map_script(filename: str) -> FileResponse:
+    """Serve the vendored browser modules, such as the engine's rollup.mjs."""
+    return _map_file(MAP_ROOT / "js", filename)
+
+
+def _map_file(folder: Path, filename: str) -> FileResponse:
+    candidate = (folder / filename).resolve()
     try:
-        candidate.relative_to(MAP_PACKAGE.resolve())
+        candidate.relative_to(folder.resolve())
     except ValueError as exc:
         raise HTTPException(status_code=404, detail="no such map asset") from exc
     if not candidate.is_file():

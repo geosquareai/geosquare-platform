@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import Body, FastAPI, File, Form, HTTPException, Query, UploadFile
+from fastapi.responses import FileResponse
 import geosquare_engine as gs
 from geosquare_v2 import read_cell_dataset
 from geosquare_v2.errors import GeosquareError
@@ -219,6 +220,16 @@ def get_dataset(dataset_id: str) -> dict:
         return read_dataset(load_registry(), path)
     except GeosquareError as exc:
         raise HTTPException(status_code=422, detail=f"dataset fails validation: {exc}") from exc
+
+
+@app.get("/datasets/{dataset_id}/parquet")
+def get_dataset_parquet(dataset_id: str) -> FileResponse:
+    """The data file of one dataset, for the browser map to roll up. Internal only: it holds every cell."""
+    _require_internal()
+    files = sorted((_dataset_path(dataset_id) / "data").glob("*.parquet"))
+    if len(files) != 1:
+        raise HTTPException(status_code=404, detail="no such dataset")
+    return FileResponse(files[0], media_type="application/vnd.apache.parquet")
 
 
 @app.post("/crosswalks", status_code=201)

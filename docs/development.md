@@ -66,3 +66,17 @@ Jangan jalankan server dengan flag ini di jaringan yang bisa diakses publik.
 - Buat cabang dari `main`. Jangan kerja langsung di `main`.
 - Buka pull request. Tunggu review sebelum merge.
 - Update dokumen di folder `docs/` jika perilaku berubah.
+
+## Peta di browser (WASM)
+
+Peta di `/map` membaca file Parquet langsung di browser, lalu melipatnya ke level sesuai zoom (E19).
+
+Paket WASM dari `geosquare-engine` belum ada di npm. Salin hasil build lokal ke `web/map/pkg/` (folder ini tidak di-commit):
+
+```zsh
+cp -R ../geosquare-engine/bindings/wasm/pkg web/map/pkg
+```
+
+`web/map/js/rollup.mjs` adalah salinan dari `geosquare-engine/bindings/wasm/js/rollup.mjs`. Jaga agar tetap sama dengan engine.
+
+Rute `GET /datasets/{id}/parquet` hanya aktif dengan `GSQ_INTERNAL_ROUTES=1`, karena file-nya berisi nilai per sel. Tanpa flag itu, peta memakai rute `/cells`.

@@ -44,8 +44,16 @@
       const gidInput = document.querySelector("#gid");
       const catalogList = document.querySelector("#catalog-list");
       const status = document.querySelector("#status");
+      const HYPARQUET_URL = "https://cdn.jsdelivr.net/npm/hyparquet@1.33.1/+esm";
+      // The writer uses ZSTD, which plain hyparquet cannot read. The compressors package adds it.
+      const COMPRESSORS_URL = "https://cdn.jsdelivr.net/npm/hyparquet-compressors@1.1.3/+esm";
+      // shortcut: a fixed cap on drawn cells, not a viewport cut. Upgrade with a bbox filter on the rollup.
+      const MAX_DRAWN_CELLS = 20000;
+      const ROLLUP_RULES = new Set(["sum", "weighted_mean", "median", "max", "min"]);
       let map;
       let engine;
+      let rollup;
+      let current = null; // the Parquet dataset on the map: { manifest, rows, rules, skipped }
 
       function setStatus(text) {
         status.textContent = text;
@@ -57,6 +65,7 @@
         const wasm = await fetch("/map/pkg/geosquare_wasm_bg.wasm");
         if (!wasm.ok) throw new Error("WASM package is not installed under /map/pkg");
         await engine.default(await wasm.arrayBuffer());
+        rollup = await import("/map/js/rollup.mjs");
         return engine;
       }
 
@@ -70,6 +79,10 @@
           zoom: 3,
         });
         map.addControl(new maplibregl.NavigationControl(), "top-right");
+        // The rollup level depends on zoom, so the Parquet dataset is folded again after each move.
+        map.on("moveend", () => {
+          if (current) drawRollup();
+        });
         return map;
       }
 
@@ -133,19 +146,85 @@
 
       async function loadDataset(datasetId, bbox) {
         setStatus("Loading dataset...");
-        const [metadataResponse, cellsResponse] = await Promise.all([
-          fetch(`/datasets/${encodeURIComponent(datasetId)}`),
-          fetch(`/datasets/${encodeURIComponent(datasetId)}/cells?bbox=${encodeURIComponent(bbox)}&limit=5000`),
-        ]);
+        const encoded = encodeURIComponent(datasetId);
+        const metadataResponse = await fetch(`/datasets/${encoded}`);
         if (!metadataResponse.ok) throw new Error(`Dataset metadata request failed (${metadataResponse.status})`);
-        if (!cellsResponse.ok) throw new Error(`Cell request failed (${cellsResponse.status})`);
-        const metadata = await metadataResponse.json();
-        const payload = await cellsResponse.json();
-        const manifest = metadata.manifest;
+        const manifest = (await metadataResponse.json()).manifest;
         await loadEngine();
         ensureMap();
+        const parquetResponse = await fetch(`/datasets/${encoded}/parquet`);
+        if (parquetResponse.ok) {
+          await loadParquet(manifest, await parquetResponse.arrayBuffer());
+          return;
+        }
+        if (parquetResponse.status !== 404) throw new Error(`Parquet request failed (${parquetResponse.status})`);
+        // The Parquet route is internal only. Other hosts draw the cells in the bbox instead.
+        current = null;
+        const cellsResponse = await fetch(`/datasets/${encoded}/cells?bbox=${encodeURIComponent(bbox)}&limit=5000`);
+        if (!cellsResponse.ok) throw new Error(`Cell request failed (${cellsResponse.status})`);
+        const payload = await cellsResponse.json();
         renderCells(payload.cells, manifest.domain_id);
         setStatus(`cell count: ${payload.cells.length} · domain: ${manifest.domain_code} · level: ${manifest.level}`);
+      }
+
+      // Rollup rules from the manifest. Columns the browser cannot roll up are listed as skipped.
+      function rollupRules(manifest) {
+        const rules = {};
+        const skipped = [];
+        for (const field of manifest.value_fields) {
+          const rule = field.space_aggregation;
+          const weight = field.space_weight;
+          if (!ROLLUP_RULES.has(rule) || (rule === "weighted_mean" && !weight)) {
+            skipped.push(field.name);
+          } else if (rule === "weighted_mean") {
+            rules[field.name] = { rule, weight };
+          } else {
+            rules[field.name] = { rule };
+          }
+        }
+        return { rules, skipped };
+      }
+
+      // Reads the whole file into memory: an ArrayBuffer works as hyparquet's file.
+      // shortcut: one download per dataset, no range reads yet. Upgrade for files too big for memory.
+      async function loadParquet(manifest, buffer) {
+        const { rules, skipped } = rollupRules(manifest);
+        const weights = Object.values(rules).map((spec) => spec.weight).filter((w) => w && w !== "area");
+        const columns = [...new Set(["gid", ...Object.keys(rules), ...weights])];
+        const { parquetReadObjects } = await import(HYPARQUET_URL);
+        const rows = await parquetReadObjects({ file: buffer, columns, compressors: (await import(COMPRESSORS_URL)).compressors });
+        current = { manifest, rows, rules, skipped };
+        drawRollup();
+        const box = manifest.extent && manifest.extent.bbox_wgs84;
+        if (box) {
+          const [west, south, east, north] = box;
+          fitToBounds([[west, south], [east, south], [east, north], [west, north]]);
+        }
+      }
+
+      // Folds the rows to the level for the current zoom, and draws the parent cells.
+      function drawRollup() {
+        const { manifest, rows, rules, skipped } = current;
+        const level = Math.min(rollup.levelForZoom(map.getZoom()), manifest.level);
+        const cells = rollup.rollupToLevel(rows, level, rules);
+        const note = skipped.length ? ` · not rolled up in the browser: ${skipped.join(", ")}` : "";
+        if (cells.length > MAX_DRAWN_CELLS) {
+          putFeatures("rollup", [], { "fill-color": "#2f80ed", "fill-opacity": 0.38 }, { "line-color": "#155eef", "line-width": 1 });
+          setStatus(`${cells.length} cells at level ${level}: zoom in to draw up to ${MAX_DRAWN_CELLS}${note}`);
+          return;
+        }
+        const features = cells.map(({ gid, ...values }) => ({
+          type: "Feature",
+          properties: values,
+          geometry: { type: "Polygon", coordinates: [engine.cellPolygonWgs84(manifest.domain_id, gid, 25000, false)] },
+        }));
+        putFeatures(
+          "rollup",
+          features,
+          { "fill-color": "#2f80ed", "fill-opacity": 0.38 },
+          { "line-color": "#155eef", "line-width": 1 },
+        );
+        setStatus(`${cells.length} cell(s) · level ${level} · domain: ${manifest.domain_code}${note}`);
       }
 
       // Exact coverage of one dataset: its compact cells, drawn on the map.
