@@ -81,3 +81,20 @@ def test_cells_contains_only_gid_and_value_columns(client, dataset):
     assert rows
     assert all(set(row) == {"gid", "share"} for row in rows)
     assert all("geometry" not in row and "polygon" not in row for row in rows)
+
+
+def test_parquet_route_is_internal_only(client, dataset, monkeypatch):
+    url = f"/datasets/{dataset.dataset_id}/parquet"
+    monkeypatch.delenv("GSQ_INTERNAL_ROUTES", raising=False)
+    assert client.get(url).status_code == 404
+
+    monkeypatch.setenv("GSQ_INTERNAL_ROUTES", "1")
+    response = client.get(url)
+    assert response.status_code == 200
+    assert response.content[:4] == b"PAR1"
+    assert client.get("/datasets/ID-L9-000000000000/parquet").status_code == 404
+
+
+def test_map_script_is_served_and_missing_file_is_404(client):
+    assert client.get("/map/js/rollup.mjs").status_code == 200
+    assert client.get("/map/js/missing.mjs").status_code == 404

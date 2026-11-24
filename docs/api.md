@@ -79,6 +79,8 @@ Setiap item di `value_fields` punya:
 
 Manifest yang disimpan memakai format 1.1. Platform mengisi sendiri statistik kolom, cakupan (`extent`, kotak WGS 84), dan hash isi file.
 
+Setiap upload juga dicek seperti `gsq check`: GID kosong atau rusak, GID kembar, dan level campur. Kalau ada baris yang salah, balasannya 422 dengan `detail.problems`: satu baris per masalah, berisi nomor baris. Contoh: `"row 4: invalid GID 'zz'"` atau `"duplicate GID ...: rows 1, 2"`.
+
 Query: `confirm_digit_gid`.
 
 Jawaban 201 berisi `dataset_id`, `level`, `rows`, `unique_cells`, `value_fields`, `dropped_columns`, dan `valid`.

@@ -66,3 +66,46 @@ Jangan jalankan server dengan flag ini di jaringan yang bisa diakses publik.
 - Buat cabang dari `main`. Jangan kerja langsung di `main`.
 - Buka pull request. Tunggu review sebelum merge.
 - Update dokumen di folder `docs/` jika perilaku berubah.
+
+## Peta di browser (WASM)
+
+Peta di `/map` membaca file Parquet langsung di browser, lalu melipatnya ke level sesuai zoom (E19).
+
+Paket WASM dari `geosquare-engine` belum ada di npm. Salin hasil build lokal ke `web/map/pkg/` (folder ini tidak di-commit):
+
+```zsh
+cp -R ../geosquare-engine/bindings/wasm/pkg web/map/pkg
+```
+
+`web/map/js/rollup.mjs` adalah salinan dari `geosquare-engine/bindings/wasm/js/rollup.mjs`. Jaga agar tetap sama dengan engine.
+
+Rute `GET /datasets/{id}/parquet` hanya aktif dengan `GSQ_INTERNAL_ROUTES=1`, karena file-nya berisi nilai per sel. Tanpa flag itu, peta memakai rute `/cells`.
+
+## Raster ke sel (L14)
+
+`raster_to_cells` di `src/geosquare_platform/raster.py` membaca GeoTIFF atau COG dengan `read_raster` dari engine. Nilai tiap sel adalah rata-rata piksel yang titik tengahnya ada di dalam bbox.
+
+Fungsi ini butuh extension DuckDB dari engine (belum ada di PyPI). Build dulu di `geosquare-engine/bindings/duckdb`, lalu:
+
+```zsh
+export GSQ_DUCKDB_EXTENSION=/path/to/geosquare_v2.duckdb_extension
+uv sync --extra test
+uv run --extra test pytest -q tests/test_raster_cells.py
+```
+
+Tanpa `GSQ_DUCKDB_EXTENSION`, fungsi menolak dengan pesan yang jelas. Tes referensi akan dilewati.
+
+**Versi engine yang wajib:** extension harus dibuild dari commit engine `7e6da90` atau lebih baru (branch `feat/phase5-engine-bundle`, PR #41 belum di-merge ke `main`). Commit itu memperbaiki `read_raster` agar hanya mengembalikan piksel yang titik tengahnya di dalam bbox. Extension dari `main` akan memberi piksel di luar bbox di tepi, sehingga sel tepi salah. Extension harus untuk DuckDB 1.5.0.
+
+Sengaja tidak ada rute HTTP. Input-nya path file di server, jadi rute seperti itu bisa membaca file sembarang.
+
+## Notebook starter (L19)
+
+`notebooks/starter.ipynb` memuat dataset contoh di `notebooks/sample/`, dirollup dengan `df.gsq`, menggambar peta, lalu mengekspor CSV. Jalankan dari folder `notebooks` dengan membuka notebook dan menjalankan semua sel dari atas ke bawah:
+
+```zsh
+uv sync --extra test --extra notebook
+cd notebooks
+```
+
+Notebook ini butuh `df.gsq` dari engine (main setelah PR #39). Rilis PyPI 0.2.0 belum punya fitur ini.
