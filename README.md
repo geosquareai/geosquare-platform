@@ -4,7 +4,7 @@ Server API untuk dataset sel GeoSquare. Platform ini menerima CSV, memeriksa set
 
 Platform ini memakai dua paket inti:
 
-- `geosquare-engine` (0.2.0 atau lebih baru) untuk hitung grid, seperti GID, level, dan deteksi kolom.
+- `geosquare-engine` (0.3.0 atau lebih baru, dari PyPI) untuk hitung grid, seperti GID, level, dan deteksi kolom.
 - `geosquare-v2` (1.2.0 atau lebih baru) untuk format dataset, manifest, dan aturan spec.
 
 Platform tidak menulis ulang aturan grid. Semua aturan ada di dua paket itu.
